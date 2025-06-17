@@ -9,10 +9,20 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
+// Get the base path for GitHub Pages deployment
+const getBasename = () => {
+  // In production (GitHub Pages), use the repository name as basename
+  // In development, use empty string
+  if (import.meta.env.PROD) {
+    return '/pms_react';
+  }
+  return '';
+};
+
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={getBasename()}>
       <App />
     </BrowserRouter>
   </React.StrictMode>
