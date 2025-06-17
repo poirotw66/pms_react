@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://yourusername.github.io/pms_gemini",
+  "homepage": "https://poirotw66.github.io/pms_react",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
