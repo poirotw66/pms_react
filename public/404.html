@@ -18,8 +18,10 @@
       // If you're creating a Project Pages site and NOT using a custom domain,
       // then set pathSegmentsToKeep to 1 (enterprise users may need to set it to > 1).
       // This way the code will only replace the route part and not the real directory.
-      // For example: https://username.github.io/repo-name/one/two?a=b&c=d#qwe becomes
-      // https://username.github.io/repo-name/?/one/two&a=b~and~c=d#qwe
+      // For GitHub Pages project sites like https://username.github.io/repo-name/
+      // we need to keep 1 segment (the repo name) and redirect the rest
+      // For example: https://poirotw66.github.io/pms_react/tenants becomes
+      // https://poirotw66.github.io/pms_react/?/tenants
       // Otherwise, leave pathSegmentsToKeep as 0.
       var pathSegmentsToKeep = 1;
 

@@ -21,8 +21,11 @@
           var decoded = l.search.slice(1).split('&').map(function(s) {
             return s.replace(/~and~/g, '&')
           }).join('?');
+          // For GitHub Pages project sites, we need to preserve the repo name in the path
+          // The pathname should be like /pms_react/?/route instead of /?/route
+          var basePath = l.pathname.split('/').slice(0, 2).join('/'); // Keep /pms_react
           window.history.replaceState(null, null,
-              l.pathname.slice(0, -1) + decoded + l.hash
+              basePath + decoded + l.hash
           );
         }
       }(window.location))
