@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>綜合物業管理系統</title>
+    <!-- Start Single Page Apps for GitHub Pages -->
+    <script type="text/javascript">
+      // Single Page Apps for GitHub Pages
+      // MIT License
+      // https://github.com/rafgraph/spa-github-pages
+      // This script checks to see if a redirect is present in the query string,
+      // converts it back into the correct url and adds it to the
+      // browser's history using window.history.replaceState(...),
+      // which won't cause the browser to attempt to load the new url.
+      // When the single page app is loaded further down in this file,
+      // the correct url will be waiting in the browser's history for
+      // the single page app to route accordingly.
+      (function(l) {
+        if (l.search[1] === '/' ) {
+          var decoded = l.search.slice(1).split('&').map(function(s) {
+            return s.replace(/~and~/g, '&')
+          }).join('?');
+          window.history.replaceState(null, null,
+              l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      }(window.location))
+    </script>
+    <!-- End Single Page Apps for GitHub Pages -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#0ea5e9', // Sky-500
+              'primary-dark': '#0284c7', // Sky-600
+              secondary: '#10b981', // Emerald-500
+              'secondary-dark': '#059669', // Emerald-600
+              danger: '#ef4444', // Red-500
+              'danger-dark': '#dc2626', // Red-600
+              background: '#f1f5f9', // Slate-100 - Main app background
+              surface: '#ffffff',    // Card, Modal backgrounds
+              sidebar: '#1e293b',    // Slate-800 - Sidebar background
+              'sidebar-accent': '#334155', // Slate-700 - Sidebar hover/focus
+              textPrimary: '#111827', // Gray-900 - Main text color
+              textSecondary: '#6b7280', // Gray-500 - Muted text color
+              borderLight: '#e5e7eb', // Gray-200
+              borderDefault: '#d1d5db', // Gray-300
+            }
+          }
+        }
+      }
+    </script>
+<!--
+  IMPORTANT: This HTML file needs to be served by a development server (like Vite)
+  that can transpile TypeScript/JSX (.tsx files) and handle ES modules correctly.
+  Opening this file directly in the browser (via file:// protocol) will NOT work
+  and will likely result in errors like "Unexpected token 'export'".
+
+  To run this project:
+  1. Open your terminal in the project directory.
+  2. Ensure you have Node.js and npm installed.
+  3. If you don't have a `package.json` file, run `npm init -y` (or `npm init` and follow prompts).
+     Ensure your project folder name is suitable for a package name (e.g., english, no special chars).
+  4. Run 'npm install vite react react-dom react-router-dom --save-dev' (or --save for runtime deps like React).
+     Also consider installing types: 'npm install @types/react @types/react-dom @types/react-router-dom --save-dev'
+  5. Run 'npx vite'.
+  6. Open the http://localhost:XXXX URL provided by Vite in your browser.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.6.2",
+    "react/": "https://esm.sh/react@^19.1.0/",
+    "react": "https://esm.sh/react@^19.1.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-background text-textPrimary">
+    <div id="root"></div>
+    <!--
+      The "type='module'" attribute on this script tag is CRUCIAL.
+      It instructs the browser to treat the JavaScript file generated from './index.tsx'
+      (after transpilation by a development server like Vite) as an ES module.
+      This allows the use of 'import' and 'export' statements.
+
+      ERROR TYPE: If you see "Uncaught SyntaxError: Unexpected token 'export'" in your browser console,
+      it STRONGLY INDICATES that this script (or one it imports) is NOT being processed as an ES module,
+      OR that TSX/JSX is not being transpiled.
+      
+      COMMON CAUSES & SOLUTIONS:
+      1. NOT USING A DEV SERVER: You might be opening this HTML file directly in the browser
+         (e.g., using a file:/// URL). This WILL NOT WORK for .tsx files.
+         SOLUTION: You MUST use a development server like Vite. Follow the instructions
+         in README.md or the comments at the top of this file (e.g., `npm install vite --save-dev`, then `npx vite`).
+      2. DEV SERVER NOT RUNNING/MISCONFIGURED: Ensure Vite (or your chosen server) is running
+         and correctly configured to handle .tsx files and serve them as modules.
+      3. ACCESSING THE WRONG URL: Make sure you are opening the http://localhost:XXXX URL
+         provided by Vite in your browser, NOT the file:/// URL.
+      4. MISSING DEPENDENCIES: Ensure React, ReactDOM, and React Router are installed via npm if not using an importmap.
+    -->
+    <script type="module" src="./index.tsx"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

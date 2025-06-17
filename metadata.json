@@ -1,0 +1,6 @@
+{
+  "name": "PMS",
+  "description": "一個全面的物業管理應用程式，用於管理租戶、物業、合約、維修請求、資產和潛在客戶。",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
