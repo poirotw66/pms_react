@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Contract, Tenant, Property, PaymentCycle, PaymentRecord } from '../types.ts';
-import { useLocalStorage } from '../hooks/useLocalStorage.ts';
+import { Contract, PaymentCycle, PaymentRecord } from '../types.ts';
+import { useContracts, useTenants, useProperties } from '../contexts/DataContext.tsx';
 import { Modal } from './common/Modal.tsx';
-import { Input, Button, Select, TextArea } from './common/FormControls.tsx';
-import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, MoneyIcon, CalendarDaysIcon, BellAlertIcon, DEFAULT_CONTRACT } from '../constants.tsx';
+import { Input, Button, Select, FormGroup, Card } from './common/FormControls.tsx';
+import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, MoneyIcon, CalendarDaysIcon, BellAlertIcon, DEFAULT_CONTRACT, DocumentTextIcon } from '../constants.tsx';
 
 const ContractManagement: React.FC = () => {
-  const [contracts, setContracts] = useLocalStorage<Contract[]>('contracts', []);
-  const [tenants] = useLocalStorage<Tenant[]>('tenants', []);
-  const [properties] = useLocalStorage<Property[]>('properties', []);
+  const [contracts, setContracts] = useContracts();
+  const [tenants] = useTenants();
+  const [properties] = useProperties();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -20,6 +20,7 @@ const ContractManagement: React.FC = () => {
   const [currentPaymentRecord, setCurrentPaymentRecord] = useState<Partial<PaymentRecord>>({});
   const [editingPaymentRecordId, setEditingPaymentRecordId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     if (searchParams.get('action') === 'add') {
@@ -29,7 +30,6 @@ const ContractManagement: React.FC = () => {
       setSearchParams(newSearchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
-
 
   const getTenantName = (tenantId: string) => tenants.find(t => t.id === tenantId)?.name || 'N/A';
   const getPropertyAddress = (propertyId: string) => properties.find(p => p.id === propertyId)?.address || 'N/A';
@@ -55,11 +55,11 @@ const ContractManagement: React.FC = () => {
   const openPaymentModal = (contract: Contract, payment?: PaymentRecord) => {
     setCurrentContract(contract);
     if (payment) {
-        setCurrentPaymentRecord(payment);
-        setEditingPaymentRecordId(payment.id);
+      setCurrentPaymentRecord(payment);
+      setEditingPaymentRecordId(payment.id);
     } else {
-        setCurrentPaymentRecord({ paymentDate: new Date().toISOString().split('T')[0], isConfirmed: false });
-        setEditingPaymentRecordId(null);
+      setCurrentPaymentRecord({ paymentDate: new Date().toISOString().split('T')[0], isConfirmed: false });
+      setEditingPaymentRecordId(null);
     }
     setIsPaymentModalOpen(true);
   };
@@ -99,22 +99,22 @@ const ContractManagement: React.FC = () => {
 
     const updatedContract = { ...currentContract };
     if (!updatedContract.paymentRecords) {
-        updatedContract.paymentRecords = [];
+      updatedContract.paymentRecords = [];
     }
 
     if (editingPaymentRecordId) { 
-        updatedContract.paymentRecords = updatedContract.paymentRecords.map(pr => 
-            pr.id === editingPaymentRecordId ? { ...currentPaymentRecord, id: editingPaymentRecordId } as PaymentRecord : pr
-        );
+      updatedContract.paymentRecords = updatedContract.paymentRecords.map(pr => 
+        pr.id === editingPaymentRecordId ? { ...currentPaymentRecord, id: editingPaymentRecordId } as PaymentRecord : pr
+      );
     } else { 
-        const newPayment: PaymentRecord = {
-            id: crypto.randomUUID(),
-            paymentDate: currentPaymentRecord.paymentDate!,
-            amount: currentPaymentRecord.amount!,
-            method: currentPaymentRecord.method || '未指定',
-            isConfirmed: currentPaymentRecord.isConfirmed || false,
-        };
-        updatedContract.paymentRecords.push(newPayment);
+      const newPayment: PaymentRecord = {
+        id: crypto.randomUUID(),
+        paymentDate: currentPaymentRecord.paymentDate!,
+        amount: currentPaymentRecord.amount!,
+        method: currentPaymentRecord.method || '未指定',
+        isConfirmed: currentPaymentRecord.isConfirmed || false,
+      };
+      updatedContract.paymentRecords.push(newPayment);
     }
     
     setContracts(contracts.map(c => c.id === updatedContract.id ? updatedContract : c));
@@ -138,8 +138,8 @@ const ContractManagement: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentContract.propertyId || !currentContract.tenantId) {
-        alert("請選擇物件和承租人");
-        return;
+      alert("請選擇物件和承租人");
+      return;
     }
     if (editingId) {
       setContracts(contracts.map(c => c.id === editingId ? { ...currentContract, id: editingId } : c));
@@ -181,9 +181,9 @@ const ContractManagement: React.FC = () => {
     const currentYear = today.getFullYear();
     
     const paidThisMonth = contract.paymentRecords.some(p => {
-        if (!p.paymentDate) return false;
-        const paymentDate = new Date(p.paymentDate);
-        return p.isConfirmed && paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear;
+      if (!p.paymentDate) return false;
+      const paymentDate = new Date(p.paymentDate);
+      return p.isConfirmed && paymentDate.getMonth() === currentMonth && paymentDate.getFullYear() === currentYear;
     });
 
     if (paidThisMonth) return false;
@@ -194,142 +194,400 @@ const ContractManagement: React.FC = () => {
     return today.getDate() >= actualPaymentDay - 5 ; 
   };
 
+  const getContractStatus = (contract: Contract) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const endDate = new Date(contract.endDate);
+    endDate.setHours(0,0,0,0);
+    
+    if (today > endDate) return { label: '已到期', badge: 'badge-danger' };
+    if (isContractExpiringSoon(contract.endDate)) return { label: '即將到期', badge: 'badge-warning' };
+    if (isRentPaymentDueSoon(contract)) return { label: '待收款', badge: 'badge-warning' };
+    return { label: '正常', badge: 'badge-success' };
+  };
+
+  // Filter contracts
+  const filteredContracts = contracts.filter(contract => 
+    contract.contractInternalId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    getTenantName(contract.tenantId).toLowerCase().includes(searchTerm.toLowerCase()) ||
+    getPropertyAddress(contract.propertyId).toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="p-6 bg-transparent">
-      <div className="flex justify-end items-center mb-6">
-        <Button onClick={() => openModal()} variant="primary">
-          <PlusIcon className="w-5 h-5 mr-2 inline-block" />
+    <div className="p-6 lg:p-8">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
+        <div className="relative w-full sm:w-80">
+          <input
+            type="text"
+            placeholder="搜尋合約..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-surface-800/50 border border-white/10 rounded-xl text-white placeholder-surface-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+        </div>
+        
+        <Button onClick={() => openModal()} variant="primary" icon={<PlusIcon className="w-4 h-4" />}>
           新增合約
         </Button>
       </div>
 
-      <div className="bg-surface shadow-lg rounded-lg overflow-x-auto">
-        <table className="min-w-full divide-y divide-borderLight">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">合約編號</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">物件</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">承租人</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">合約期間</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">狀態</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-textSecondary uppercase tracking-wider">操作</th>
-            </tr>
-          </thead>
-          <tbody className="bg-surface divide-y divide-borderLight">
-            {contracts.length === 0 && (
-                <tr><td colSpan={6} className="px-6 py-4 text-center text-textSecondary">尚無合約資料</td></tr>
-            )}
-            {contracts.map(contract => (
-              <tr key={contract.id} className="hover:bg-slate-50 transition-colors duration-150">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textPrimary">{contract.contractInternalId}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary truncate max-w-xs" title={getPropertyAddress(contract.propertyId)}>{getPropertyAddress(contract.propertyId)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">{getTenantName(contract.tenantId)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">{contract.startDate} ~ {contract.endDate}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">
-                    {isContractExpiringSoon(contract.endDate) && 
-                        <span title="合約即將到期" className="mr-1 p-1 bg-yellow-400 text-yellow-800 rounded-full text-xs inline-flex items-center"><CalendarDaysIcon className="w-3 h-3"/></span>}
-                    {isRentPaymentDueSoon(contract) && 
-                        <span title="租金即將到期或逾期" className="p-1 bg-red-400 text-red-800 rounded-full text-xs inline-flex items-center"><BellAlertIcon className="w-3 h-3"/></span>}
-                    {!(isContractExpiringSoon(contract.endDate) || isRentPaymentDueSoon(contract)) && <span className="text-green-600">正常</span>}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                  <Button onClick={() => openViewModal(contract)} variant="neutral" size="sm" className="!p-1.5" title="查看"><ViewIcon className="w-4 h-4" /></Button>
-                  <Button onClick={() => openModal(contract)} variant="neutral" size="sm" className="!p-1.5" title="編輯"><EditIcon className="w-4 h-4" /></Button>
-                  <Button onClick={() => handleDelete(contract.id)} variant="danger" size="sm" className="!p-1.5" title="刪除"><DeleteIcon className="w-4 h-4" /></Button>
-                </td>
+      {/* Table Card */}
+      <Card padding="none" className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="modern-table w-full">
+            <thead>
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">合約編號</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden lg:table-cell">物件</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">承租人</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden md:table-cell">合約期間</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">狀態</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredContracts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full bg-surface-800 flex items-center justify-center mb-4">
+                        <DocumentTextIcon className="w-8 h-8 text-surface-600" />
+                      </div>
+                      <p className="text-surface-400 mb-1">尚無合約資料</p>
+                      <p className="text-xs text-surface-500">點擊「新增合約」按鈕開始</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredContracts.map((contract, index) => {
+                  const status = getContractStatus(contract);
+                  return (
+                    <tr 
+                      key={contract.id} 
+                      className="group animate-fade-in"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
+                            <DocumentTextIcon className="w-5 h-5 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-white">{contract.contractInternalId}</p>
+                            <p className="text-xs text-surface-500">${contract.rentAmount.toLocaleString()}/月</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-surface-400 hidden lg:table-cell max-w-xs truncate" title={getPropertyAddress(contract.propertyId)}>
+                        {getPropertyAddress(contract.propertyId)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-surface-400">
+                        {getTenantName(contract.tenantId)}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-surface-400 hidden md:table-cell">
+                        <div className="flex items-center gap-2">
+                          <CalendarDaysIcon className="w-4 h-4 text-surface-500" />
+                          <span>{contract.startDate} ~ {contract.endDate}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`badge ${status.badge}`}>{status.label}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={() => openViewModal(contract)} 
+                            className="icon-btn icon-btn-primary"
+                            title="查看"
+                          >
+                            <ViewIcon className="w-4 h-4 text-surface-400" />
+                          </button>
+                          <button 
+                            onClick={() => openModal(contract)} 
+                            className="icon-btn icon-btn-primary"
+                            title="編輯"
+                          >
+                            <EditIcon className="w-4 h-4 text-surface-400" />
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(contract.id)} 
+                            className="icon-btn icon-btn-danger"
+                            title="刪除"
+                          >
+                            <DeleteIcon className="w-4 h-4 text-surface-400" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {filteredContracts.length > 0 && (
+          <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
+            <p className="text-sm text-surface-500">
+              共 <span className="text-white font-medium">{filteredContracts.length}</span> 筆資料
+            </p>
+          </div>
+        )}
+      </Card>
 
+      {/* Add/Edit Modal */}
       {isModalOpen && (
         <Modal isOpen={isModalOpen} onClose={closeModal} title={editingId ? '編輯合約' : '新增合約'} size="xl">
-          <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto p-2 text-textSecondary">
-            <Input label="合約編號 (3-1)" name="contractInternalId" value={currentContract.contractInternalId} onChange={handleInputChange} required />
-            <Select label="物件 (關聯物件管理 2-1)" name="propertyId" value={currentContract.propertyId} onChange={handleInputChange} options={properties.map(p => ({ value: p.id, label: `${p.propertyInternalId} - ${p.address}` }))} required />
-            <Select label="承租人 (3-3, 關聯客戶管理 1-1)" name="tenantId" value={currentContract.tenantId} onChange={handleInputChange} options={tenants.map(t => ({ value: t.id, label: t.name }))} required />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input label="合約起始日期 (3-2)" name="startDate" type="date" value={currentContract.startDate} onChange={handleInputChange} required />
-              <Input label="合約結束日期 (3-2)" name="endDate" type="date" value={currentContract.endDate} onChange={handleInputChange} required />
-            </div>
-            <Input label="租金金額" name="rentAmount" type="number" value={currentContract.rentAmount} onChange={handleInputChange} required />
-            <Select label="繳費週期 (3-6)" name="paymentCycle" value={currentContract.paymentCycle} onChange={handleInputChange} options={paymentCycleOptions} required />
-            
-            <p className="text-xs mt-2">合約到期提醒 (3-4) 與租金收款提醒 (3-5) 將根據合約期間與週期自動判斷。</p>
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <FormGroup title="合約基本資訊">
+              <Input 
+                label="合約編號" 
+                name="contractInternalId" 
+                value={currentContract.contractInternalId} 
+                onChange={handleInputChange} 
+                placeholder="請輸入合約編號"
+                required 
+              />
+              <Select 
+                label="物件" 
+                name="propertyId" 
+                value={currentContract.propertyId} 
+                onChange={handleInputChange} 
+                options={properties.map(p => ({ value: p.id, label: `${p.propertyInternalId} - ${p.address}` }))} 
+                required 
+              />
+              <Select 
+                label="承租人" 
+                name="tenantId" 
+                value={currentContract.tenantId} 
+                onChange={handleInputChange} 
+                options={tenants.map(t => ({ value: t.id, label: t.name }))} 
+                required 
+              />
+            </FormGroup>
 
-            <div className="flex justify-end space-x-3 pt-4 sticky bottom-0 bg-surface py-3 border-t border-borderLight">
-              <Button type="button" variant="neutral" onClick={closeModal}>取消</Button>
+            <FormGroup title="合約期間">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input 
+                  label="起始日期" 
+                  name="startDate" 
+                  type="date" 
+                  value={currentContract.startDate} 
+                  onChange={handleInputChange} 
+                  required 
+                />
+                <Input 
+                  label="結束日期" 
+                  name="endDate" 
+                  type="date" 
+                  value={currentContract.endDate} 
+                  onChange={handleInputChange} 
+                  required 
+                />
+              </div>
+            </FormGroup>
+
+            <FormGroup title="租金資訊">
+              <Input 
+                label="租金金額 (NT$)" 
+                name="rentAmount" 
+                type="number" 
+                value={currentContract.rentAmount} 
+                onChange={handleInputChange} 
+                placeholder="請輸入租金金額"
+                required 
+              />
+              <Select 
+                label="繳費週期" 
+                name="paymentCycle" 
+                value={currentContract.paymentCycle} 
+                onChange={handleInputChange} 
+                options={paymentCycleOptions} 
+                required 
+              />
+            </FormGroup>
+            
+            <div className="p-4 rounded-xl bg-info-500/10 border border-info-500/20">
+              <p className="text-xs text-info-400">💡 合約到期提醒與租金收款提醒將根據合約期間與週期自動判斷</p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button type="button" variant="ghost" onClick={closeModal}>取消</Button>
               <Button type="submit" variant="primary">{editingId ? '儲存變更' : '新增合約'}</Button>
             </div>
           </form>
         </Modal>
       )}
 
+      {/* View Modal */}
       {isViewModalOpen && currentContract && (
-        <Modal isOpen={isViewModalOpen} onClose={closeModal} title={`查看合約: ${currentContract.contractInternalId}`} size="2xl">
-          <div className="space-y-3 text-sm max-h-[75vh] overflow-y-auto p-1 text-textSecondary">
-            <p><strong>合約編號:</strong> <span className="text-textPrimary">{currentContract.contractInternalId}</span></p>
-            <p><strong>物件:</strong> <span className="text-textPrimary">{getPropertyAddress(currentContract.propertyId)} (ID: {currentContract.propertyId})</span></p>
-            <p><strong>承租人:</strong> <span className="text-textPrimary">{getTenantName(currentContract.tenantId)} (ID: {currentContract.tenantId})</span></p>
-            <p><strong>合約期間:</strong> <span className="text-textPrimary">{currentContract.startDate} 至 {currentContract.endDate}</span></p>
-            <p><strong>租金:</strong> <span className="text-textPrimary">${currentContract.rentAmount} / {currentContract.paymentCycle}</span></p>
-            {isContractExpiringSoon(currentContract.endDate) && <p className="text-yellow-600 font-semibold">提醒: 合約即將在30天內到期。</p>}
-            {isRentPaymentDueSoon(currentContract) && <p className="text-red-600 font-semibold">提醒: 本期租金即將到期或已逾期，請確認收款。</p>}
-            <hr className="my-2 border-borderLight"/>
-            <div className="flex justify-between items-center">
-                <h4 className="font-semibold text-textPrimary">租金收款記錄 (3-6):</h4>
-                <Button onClick={() => openPaymentModal(currentContract)} size="sm" variant="secondary">
-                    <MoneyIcon className="w-4 h-4 mr-1 inline"/> 新增收款記錄
-                </Button>
+        <Modal isOpen={isViewModalOpen} onClose={closeModal} title={`合約詳情: ${currentContract.contractInternalId}`} size="2xl">
+          <div className="space-y-6">
+            {/* Contract Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">物件地址</p>
+                <p className="text-sm font-medium text-white">{getPropertyAddress(currentContract.propertyId)}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">承租人</p>
+                <p className="text-sm font-medium text-white">{getTenantName(currentContract.tenantId)}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">合約期間</p>
+                <p className="text-sm font-medium text-white">{currentContract.startDate} 至 {currentContract.endDate}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">租金</p>
+                <p className="text-sm font-medium text-white">${currentContract.rentAmount.toLocaleString()} / {currentContract.paymentCycle}</p>
+              </div>
             </div>
-            {(currentContract.paymentRecords || []).length === 0 ? <p>尚無收款記錄</p> : (
-                <table className="min-w-full text-xs mt-2 border-collapse">
-                    <thead className="bg-slate-50">
-                        <tr>
-                            <th className="p-2 text-left font-medium text-textSecondary border-b border-borderLight">收款日期</th>
-                            <th className="p-2 text-left font-medium text-textSecondary border-b border-borderLight">金額</th>
-                            <th className="p-2 text-left font-medium text-textSecondary border-b border-borderLight">方式</th>
-                            <th className="p-2 text-left font-medium text-textSecondary border-b border-borderLight">已確認</th>
-                            <th className="p-2 text-left font-medium text-textSecondary border-b border-borderLight">操作</th>
-                        </tr>
+
+            {/* Status Alerts */}
+            {isContractExpiringSoon(currentContract.endDate) && (
+              <div className="alert-warning p-4 rounded-xl flex items-center gap-3">
+                <CalendarDaysIcon className="w-5 h-5 text-warning-400" />
+                <p className="text-sm text-warning-400">合約即將在30天內到期，請注意續約事宜</p>
+              </div>
+            )}
+            {isRentPaymentDueSoon(currentContract) && (
+              <div className="alert-danger p-4 rounded-xl flex items-center gap-3">
+                <BellAlertIcon className="w-5 h-5 text-danger-400" />
+                <p className="text-sm text-danger-400">本期租金即將到期或已逾期，請確認收款</p>
+              </div>
+            )}
+
+            {/* Payment Records */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-semibold text-primary-400 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+                  租金收款記錄
+                </h4>
+                <Button onClick={() => openPaymentModal(currentContract)} size="sm" variant="outline" icon={<MoneyIcon className="w-4 h-4" />}>
+                  新增收款
+                </Button>
+              </div>
+              
+              {(currentContract.paymentRecords || []).length === 0 ? (
+                <div className="p-8 rounded-xl bg-surface-800/30 border border-white/5 text-center">
+                  <MoneyIcon className="w-10 h-10 text-surface-600 mx-auto mb-3" />
+                  <p className="text-surface-400 text-sm">尚無收款記錄</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-white/5">
+                  <table className="modern-table w-full">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">收款日期</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">金額</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">方式</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">狀態</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-surface-400">操作</th>
+                      </tr>
                     </thead>
                     <tbody>
-                    {(currentContract.paymentRecords || []).map(pr => (
-                        <tr key={pr.id} className="border-b border-borderLight hover:bg-slate-50">
-                            <td className="p-2 text-textPrimary">{pr.paymentDate}</td>
-                            <td className="p-2 text-textPrimary">${pr.amount}</td>
-                            <td className="p-2 text-textPrimary">{pr.method}</td>
-                            <td className="p-2 text-textPrimary">{pr.isConfirmed ? '是' : '否'}</td>
-                            <td className="p-2 space-x-1">
-                                <Button size="sm" variant="neutral" className="!p-1" onClick={() => openPaymentModal(currentContract, pr)} title="編輯"><EditIcon className="w-3.5 h-3.5"/></Button>
-                                <Button size="sm" variant="danger" className="!p-1" onClick={() => removePaymentRecord(currentContract.id, pr.id)} title="刪除"><DeleteIcon className="w-3.5 h-3.5"/></Button>
-                            </td>
+                      {(currentContract.paymentRecords || []).map(pr => (
+                        <tr key={pr.id}>
+                          <td className="px-4 py-3 text-sm text-surface-300">{pr.paymentDate}</td>
+                          <td className="px-4 py-3 text-sm text-white font-medium">${pr.amount.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm text-surface-400">{pr.method}</td>
+                          <td className="px-4 py-3">
+                            <span className={`badge ${pr.isConfirmed ? 'badge-success' : 'badge-warning'}`}>
+                              {pr.isConfirmed ? '已確認' : '待確認'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-1">
+                              <button 
+                                onClick={() => openPaymentModal(currentContract, pr)} 
+                                className="icon-btn icon-btn-primary !w-8 !h-8"
+                                title="編輯"
+                              >
+                                <EditIcon className="w-3.5 h-3.5 text-surface-400" />
+                              </button>
+                              <button 
+                                onClick={() => removePaymentRecord(currentContract.id, pr.id)} 
+                                className="icon-btn icon-btn-danger !w-8 !h-8"
+                                title="刪除"
+                              >
+                                <DeleteIcon className="w-3.5 h-3.5 text-surface-400" />
+                              </button>
+                            </div>
+                          </td>
                         </tr>
-                    ))}
+                      ))}
                     </tbody>
-                </table>
-            )}
+                  </table>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button variant="ghost" onClick={closeModal}>關閉</Button>
+              <Button variant="primary" onClick={() => { closeModal(); openModal(currentContract); }}>
+                <EditIcon className="w-4 h-4" />
+                編輯合約
+              </Button>
+            </div>
           </div>
         </Modal>
       )}
 
+      {/* Payment Modal */}
       {isPaymentModalOpen && currentContract && (
         <Modal isOpen={isPaymentModalOpen} onClose={() => setIsPaymentModalOpen(false)} title={editingPaymentRecordId ? "編輯收款記錄" : "新增收款記錄"} size="md">
-            <div className="space-y-3 text-textSecondary">
-                <Input label="收款日期" type="date" name="paymentDate" value={currentPaymentRecord.paymentDate || ''} onChange={handlePaymentRecordChange} required/>
-                <Input label="收款金額" type="number" name="amount" value={currentPaymentRecord.amount === undefined ? '' : String(currentPaymentRecord.amount)} onChange={handlePaymentRecordChange} required/>
-                <Input label="支付方式" name="method" value={currentPaymentRecord.method || ''} onChange={handlePaymentRecordChange} placeholder="例如：現金、轉帳"/>
-                <div className="flex items-center mt-2">
-                    <input type="checkbox" id="isConfirmed" name="isConfirmed" checked={currentPaymentRecord.isConfirmed || false} onChange={handlePaymentRecordChange} className="h-4 w-4 text-primary border-borderDefault rounded focus:ring-primary"/>
-                    <label htmlFor="isConfirmed" className="ml-2 block text-sm text-textPrimary">已確認收款</label>
-                </div>
-                <div className="flex justify-end space-x-2 pt-3">
-                    <Button variant="neutral" onClick={() => setIsPaymentModalOpen(false)}>取消</Button>
-                    <Button variant="primary" onClick={handleSavePaymentRecord}>{editingPaymentRecordId ? "儲存更新" : "新增記錄"}</Button>
-                </div>
+          <div className="space-y-4">
+            <Input 
+              label="收款日期" 
+              type="date" 
+              name="paymentDate" 
+              value={currentPaymentRecord.paymentDate || ''} 
+              onChange={handlePaymentRecordChange} 
+              required
+            />
+            <Input 
+              label="收款金額 (NT$)" 
+              type="number" 
+              name="amount" 
+              value={currentPaymentRecord.amount === undefined ? '' : String(currentPaymentRecord.amount)} 
+              onChange={handlePaymentRecordChange} 
+              placeholder="請輸入金額"
+              required
+            />
+            <Input 
+              label="支付方式" 
+              name="method" 
+              value={currentPaymentRecord.method || ''} 
+              onChange={handlePaymentRecordChange} 
+              placeholder="例如：現金、轉帳、信用卡"
+            />
+            
+            <label className="flex items-center gap-3 cursor-pointer p-4 rounded-xl bg-surface-800/50 border border-white/5 hover:border-primary-500/30 transition-colors">
+              <input 
+                type="checkbox" 
+                name="isConfirmed" 
+                checked={currentPaymentRecord.isConfirmed || false} 
+                onChange={handlePaymentRecordChange}
+                className="w-5 h-5 rounded border-white/20 bg-surface-800 text-primary-500 focus:ring-primary-500 focus:ring-offset-0"
+              />
+              <div>
+                <p className="text-sm font-medium text-white">已確認收款</p>
+                <p className="text-xs text-surface-500">勾選表示已確認款項入帳</p>
+              </div>
+            </label>
+            
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button variant="ghost" onClick={() => setIsPaymentModalOpen(false)}>取消</Button>
+              <Button variant="primary" onClick={handleSavePaymentRecord}>
+                {editingPaymentRecordId ? "儲存更新" : "新增記錄"}
+              </Button>
             </div>
+          </div>
         </Modal>
       )}
     </div>

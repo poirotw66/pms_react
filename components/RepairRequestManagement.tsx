@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { TenantRepairRequest, Tenant, Property, RepairRequestStatus } from '../types.ts';
-import { useLocalStorage } from '../hooks/useLocalStorage.ts';
+import { TenantRepairRequest, RepairRequestStatus } from '../types.ts';
+import { useRepairRequests, useTenants, useProperties } from '../contexts/DataContext.tsx';
 import { Modal } from './common/Modal.tsx';
-import { Input, Button, Select, TextArea } from './common/FormControls.tsx';
-import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_REPAIR_REQUEST } from '../constants.tsx';
+import { Input, Button, Select, TextArea, FormGroup, Card } from './common/FormControls.tsx';
+import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_REPAIR_REQUEST, WrenchScrewdriverIcon } from '../constants.tsx';
 
 const RepairRequestManagement: React.FC = () => {
-  const [repairRequests, setRepairRequests] = useLocalStorage<TenantRepairRequest[]>('repairRequests', []);
-  const [tenants] = useLocalStorage<Tenant[]>('tenants', []);
-  const [properties] = useLocalStorage<Property[]>('properties', []);
+  const [repairRequests, setRepairRequests] = useRepairRequests();
+  const [tenants] = useTenants();
+  const [properties] = useProperties();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -75,7 +77,6 @@ const RepairRequestManagement: React.FC = () => {
         };
         if (fieldKey === 'method' && typeof newFieldValue !== 'string') updatedDetails.method = String(newFieldValue ?? '');
 
-
         return {
           ...prev,
           resolutionDetails: updatedDetails,
@@ -89,15 +90,15 @@ const RepairRequestManagement: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentRequest.propertyId || !currentRequest.tenantId || !currentRequest.description) {
-        alert("請選擇物件、承租人並填寫報修內容。");
-        return;
+      alert("請選擇物件、承租人並填寫報修內容。");
+      return;
     }
 
     let finalResolutionDetails = currentRequest.resolutionDetails;
     if (currentRequest.status === RepairRequestStatus.COMPLETED && currentRequest.resolutionDetails) {
-        if(!currentRequest.resolutionDetails.method) {
-             finalResolutionDetails = { ...currentRequest.resolutionDetails, method: currentRequest.resolutionDetails.method || "未指定"};
-        }
+      if(!currentRequest.resolutionDetails.method) {
+        finalResolutionDetails = { ...currentRequest.resolutionDetails, method: currentRequest.resolutionDetails.method || "未指定"};
+      }
     }
 
     const requestToSave: TenantRepairRequest = {
@@ -119,101 +120,256 @@ const RepairRequestManagement: React.FC = () => {
     }
   };
 
+  const getStatusBadge = (status: RepairRequestStatus) => {
+    switch (status) {
+      case RepairRequestStatus.COMPLETED:
+        return 'badge-success';
+      case RepairRequestStatus.IN_PROGRESS:
+        return 'badge-warning';
+      default:
+        return 'badge-danger';
+    }
+  };
+
+  // Filter repair requests
+  const filteredRequests = repairRequests.filter(req => {
+    const matchesSearch = 
+      getPropertyAddress(req.propertyId).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      getTenantName(req.tenantId).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      req.description.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = !statusFilter || req.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   return (
-    <div className="p-6 bg-transparent">
-      <div className="flex justify-end items-center mb-6">
-        <Button onClick={() => openModal()} variant="primary">
-          <PlusIcon className="w-5 h-5 mr-2 inline-block" />
+    <div className="p-6 lg:p-8">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="relative w-full sm:w-64">
+            <input
+              type="text"
+              placeholder="搜尋報修..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-surface-800/50 border border-white/10 rounded-xl text-white placeholder-surface-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+            />
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-4 py-2.5 bg-surface-800/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-primary-500 transition-all"
+          >
+            <option value="">全部狀態</option>
+            {statusOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        
+        <Button onClick={() => openModal()} variant="primary" icon={<PlusIcon className="w-4 h-4" />}>
           新增報修
         </Button>
       </div>
 
-      <div className="bg-surface shadow-lg rounded-lg overflow-x-auto">
-        <table className="min-w-full divide-y divide-borderLight">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">報修日期</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">物件</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">承租人</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">狀態</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-textSecondary uppercase tracking-wider">操作</th>
-            </tr>
-          </thead>
-          <tbody className="bg-surface divide-y divide-borderLight">
-            {repairRequests.length === 0 && (
-                <tr><td colSpan={5} className="px-6 py-4 text-center text-textSecondary">尚無報修請求</td></tr>
-            )}
-            {repairRequests.map(req => (
-              <tr key={req.id} className="hover:bg-slate-50 transition-colors duration-150">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textPrimary">{req.requestDate}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary truncate max-w-xs" title={getPropertyAddress(req.propertyId)}>{getPropertyAddress(req.propertyId)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">{getTenantName(req.tenantId)}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={`px-2.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        req.status === RepairRequestStatus.COMPLETED ? 'bg-green-100 text-green-800' :
-                        req.status === RepairRequestStatus.IN_PROGRESS ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                    }`}>
-                        {req.status}
-                    </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                  <Button onClick={() => openViewModal(req)} variant="neutral" size="sm" className="!p-1.5" title="查看"><ViewIcon className="w-4 h-4" /></Button>
-                  <Button onClick={() => openModal(req)} variant="neutral" size="sm" className="!p-1.5" title="編輯"><EditIcon className="w-4 h-4" /></Button>
-                  <Button onClick={() => handleDelete(req.id)} variant="danger" size="sm" className="!p-1.5" title="刪除"><DeleteIcon className="w-4 h-4" /></Button>
-                </td>
+      {/* Table Card */}
+      <Card padding="none" className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="modern-table w-full">
+            <thead>
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">報修日期</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden lg:table-cell">物件</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">承租人</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden md:table-cell">報修內容</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">狀態</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredRequests.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full bg-surface-800 flex items-center justify-center mb-4">
+                        <WrenchScrewdriverIcon className="w-8 h-8 text-surface-600" />
+                      </div>
+                      <p className="text-surface-400 mb-1">尚無報修請求</p>
+                      <p className="text-xs text-surface-500">點擊「新增報修」按鈕開始</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredRequests.map((req, index) => (
+                  <tr 
+                    key={req.id} 
+                    className="group animate-fade-in"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          req.status === RepairRequestStatus.COMPLETED ? 'bg-primary-500/20' :
+                          req.status === RepairRequestStatus.IN_PROGRESS ? 'bg-warning-500/20' :
+                          'bg-danger-500/20'
+                        }`}>
+                          <WrenchScrewdriverIcon className={`w-5 h-5 ${
+                            req.status === RepairRequestStatus.COMPLETED ? 'text-primary-400' :
+                            req.status === RepairRequestStatus.IN_PROGRESS ? 'text-warning-400' :
+                            'text-danger-400'
+                          }`} />
+                        </div>
+                        <span className="text-sm text-white">{req.requestDate}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-surface-400 hidden lg:table-cell max-w-xs truncate">
+                      {getPropertyAddress(req.propertyId)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-surface-400">
+                      {getTenantName(req.tenantId)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-surface-400 hidden md:table-cell max-w-xs truncate">
+                      {req.description}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`badge ${getStatusBadge(req.status)}`}>{req.status}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => openViewModal(req)} className="icon-btn icon-btn-primary" title="查看">
+                          <ViewIcon className="w-4 h-4 text-surface-400" />
+                        </button>
+                        <button onClick={() => openModal(req)} className="icon-btn icon-btn-primary" title="編輯">
+                          <EditIcon className="w-4 h-4 text-surface-400" />
+                        </button>
+                        <button onClick={() => handleDelete(req.id)} className="icon-btn icon-btn-danger" title="刪除">
+                          <DeleteIcon className="w-4 h-4 text-surface-400" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {filteredRequests.length > 0 && (
+          <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
+            <p className="text-sm text-surface-500">
+              共 <span className="text-white font-medium">{filteredRequests.length}</span> 筆資料
+            </p>
+          </div>
+        )}
+      </Card>
 
+      {/* Add/Edit Modal */}
       {isModalOpen && (
         <Modal isOpen={isModalOpen} onClose={closeModal} title={editingId ? '編輯報修請求' : '新增報修請求'} size="xl">
-          <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto p-2 text-textSecondary">
-            <Input label="報修日期 (4-1)" name="requestDate" type="date" value={currentRequest.requestDate} onChange={handleInputChange} required />
-            <Select label="物件" name="propertyId" value={currentRequest.propertyId} onChange={handleInputChange} options={properties.map(p => ({ value: p.id, label: `${p.propertyInternalId} - ${p.address}` }))} required />
-            <Select label="承租人" name="tenantId" value={currentRequest.tenantId} onChange={handleInputChange} options={tenants.map(t => ({ value: t.id, label: t.name }))} required />
-            <TextArea label="報修內容 (4-2)" name="description" value={currentRequest.description} onChange={handleInputChange} required placeholder="詳細描述損壞情況、地點等"/>
-            <Select label="狀態" name="status" value={currentRequest.status} onChange={handleInputChange} options={statusOptions} required />
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <FormGroup title="報修資訊">
+              <Input label="報修日期" name="requestDate" type="date" value={currentRequest.requestDate} onChange={handleInputChange} required />
+              <Select label="物件" name="propertyId" value={currentRequest.propertyId} onChange={handleInputChange} options={properties.map(p => ({ value: p.id, label: `${p.propertyInternalId} - ${p.address}` }))} required />
+              <Select label="承租人" name="tenantId" value={currentRequest.tenantId} onChange={handleInputChange} options={tenants.map(t => ({ value: t.id, label: t.name }))} required />
+              <TextArea label="報修內容" name="description" value={currentRequest.description} onChange={handleInputChange} placeholder="詳細描述損壞情況、地點等" required />
+              <Select label="狀態" name="status" value={currentRequest.status} onChange={handleInputChange} options={statusOptions} required />
+            </FormGroup>
 
             {currentRequest.status === RepairRequestStatus.COMPLETED && (
-              <div className="p-4 border border-borderLight rounded-md mt-3 bg-slate-50">
-                <h3 className="text-md font-semibold mb-3 text-textPrimary">結案方式及費用 (4-3)</h3>
-                <TextArea label="修繕方式" name="resolutionDetails.method" value={currentRequest.resolutionDetails?.method || ''} onChange={handleInputChange} />
-                <Input label="修繕廠商/人員" name="resolutionDetails.vendor" value={currentRequest.resolutionDetails?.vendor || ''} onChange={handleInputChange} />
-                <Input label="費用明細" name="resolutionDetails.cost" type="number" value={currentRequest.resolutionDetails?.cost === undefined ? '' : String(currentRequest.resolutionDetails.cost)} onChange={handleInputChange} />
-                <Input label="結案日期 (4-4)" name="resolutionDetails.completionDate" type="date" value={currentRequest.resolutionDetails?.completionDate || ''} onChange={handleInputChange} />
-                <TextArea label="備註" name="resolutionDetails.notes" value={currentRequest.resolutionDetails?.notes || ''} onChange={handleInputChange} />
-              </div>
+              <FormGroup title="結案資訊">
+                <TextArea label="修繕方式" name="resolutionDetails.method" value={currentRequest.resolutionDetails?.method || ''} onChange={handleInputChange} placeholder="描述修繕方式" />
+                <Input label="修繕廠商/人員" name="resolutionDetails.vendor" value={currentRequest.resolutionDetails?.vendor || ''} onChange={handleInputChange} placeholder="例：XXX水電行" />
+                <Input label="費用 (NT$)" name="resolutionDetails.cost" type="number" value={currentRequest.resolutionDetails?.cost === undefined ? '' : String(currentRequest.resolutionDetails.cost)} onChange={handleInputChange} placeholder="請輸入費用" />
+                <Input label="結案日期" name="resolutionDetails.completionDate" type="date" value={currentRequest.resolutionDetails?.completionDate || ''} onChange={handleInputChange} />
+                <TextArea label="備註" name="resolutionDetails.notes" value={currentRequest.resolutionDetails?.notes || ''} onChange={handleInputChange} placeholder="其他備註事項" />
+              </FormGroup>
             )}
             
-            <div className="flex justify-end space-x-3 pt-4 sticky bottom-0 bg-surface py-3 border-t border-borderLight">
-              <Button type="button" variant="neutral" onClick={closeModal}>取消</Button>
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button type="button" variant="ghost" onClick={closeModal}>取消</Button>
               <Button type="submit" variant="primary">{editingId ? '儲存變更' : '新增報修'}</Button>
             </div>
           </form>
         </Modal>
       )}
 
+      {/* View Modal */}
       {isViewModalOpen && currentRequest && (
-        <Modal isOpen={isViewModalOpen} onClose={closeModal} title="查看報修請求" size="lg">
-          <div className="space-y-3 text-sm text-textSecondary">
-            <p><strong>報修日期:</strong> <span className="text-textPrimary">{currentRequest.requestDate}</span></p>
-            <p><strong>物件:</strong> <span className="text-textPrimary">{getPropertyAddress(currentRequest.propertyId)}</span></p>
-            <p><strong>承租人:</strong> <span className="text-textPrimary">{getTenantName(currentRequest.tenantId)}</span></p>
-            <p><strong>報修內容:</strong> <span className="whitespace-pre-wrap text-textPrimary">{currentRequest.description}</span></p>
-            <p><strong>狀態:</strong> <span className="text-textPrimary">{currentRequest.status}</span></p>
+        <Modal isOpen={isViewModalOpen} onClose={closeModal} title="報修詳情" size="lg">
+          <div className="space-y-6">
+            {/* Status Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/5">
+              <span className={`badge ${getStatusBadge(currentRequest.status)} !text-sm !px-4 !py-1.5`}>
+                {currentRequest.status}
+              </span>
+              <span className="text-sm text-surface-500">{currentRequest.requestDate}</span>
+            </div>
+            
+            {/* Details */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">物件</p>
+                <p className="text-sm font-medium text-white">{getPropertyAddress(currentRequest.propertyId)}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">承租人</p>
+                <p className="text-sm font-medium text-white">{getTenantName(currentRequest.tenantId)}</p>
+              </div>
+            </div>
+            
+            <div>
+              <h4 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
+                <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+                報修內容
+              </h4>
+              <p className="text-sm text-surface-300 whitespace-pre-wrap p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                {currentRequest.description}
+              </p>
+            </div>
+            
             {currentRequest.status === RepairRequestStatus.COMPLETED && currentRequest.resolutionDetails && (
-              <div className="mt-3 pt-3 border-t border-borderLight">
-                <h4 className="font-semibold text-textPrimary mb-1">結案詳情:</h4>
-                <p><strong>修繕方式:</strong> <span className="text-textPrimary">{currentRequest.resolutionDetails.method}</span></p>
-                <p><strong>廠商/人員:</strong> <span className="text-textPrimary">{currentRequest.resolutionDetails.vendor || '-'}</span></p>
-                <p><strong>費用:</strong> <span className="text-textPrimary">${currentRequest.resolutionDetails.cost === undefined ? 0 : currentRequest.resolutionDetails.cost}</span></p>
-                <p><strong>結案日期:</strong> <span className="text-textPrimary">{currentRequest.resolutionDetails.completionDate || '-'}</span></p>
-                {currentRequest.resolutionDetails.notes && <p><strong>備註:</strong> <span className="text-textPrimary">{currentRequest.resolutionDetails.notes}</span></p>}
+              <div>
+                <h4 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+                  結案詳情
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                    <p className="text-xs text-surface-500 mb-1">修繕方式</p>
+                    <p className="text-sm font-medium text-white">{currentRequest.resolutionDetails.method || '-'}</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                    <p className="text-xs text-surface-500 mb-1">廠商/人員</p>
+                    <p className="text-sm font-medium text-white">{currentRequest.resolutionDetails.vendor || '-'}</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                    <p className="text-xs text-surface-500 mb-1">費用</p>
+                    <p className="text-sm font-medium text-white">${currentRequest.resolutionDetails.cost?.toLocaleString() || 0}</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                    <p className="text-xs text-surface-500 mb-1">結案日期</p>
+                    <p className="text-sm font-medium text-white">{currentRequest.resolutionDetails.completionDate || '-'}</p>
+                  </div>
+                </div>
+                {currentRequest.resolutionDetails.notes && (
+                  <div className="mt-4 p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                    <p className="text-xs text-surface-500 mb-1">備註</p>
+                    <p className="text-sm text-surface-300">{currentRequest.resolutionDetails.notes}</p>
+                  </div>
+                )}
               </div>
             )}
+            
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button variant="ghost" onClick={closeModal}>關閉</Button>
+              <Button variant="primary" onClick={() => { closeModal(); openModal(currentRequest); }}>
+                <EditIcon className="w-4 h-4" />
+                編輯報修
+              </Button>
+            </div>
           </div>
         </Modal>
       )}

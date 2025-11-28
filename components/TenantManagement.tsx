@@ -1,29 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tenant } from '../types.ts';
-import { useLocalStorage } from '../hooks/useLocalStorage.ts';
+import { useTenants } from '../contexts/DataContext.tsx';
 import { Modal } from './common/Modal.tsx';
-import { Input, Button } from './common/FormControls.tsx';
-import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_TENANT } from '../constants.tsx';
+import { Input, Button, FormGroup, Card } from './common/FormControls.tsx';
+import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_TENANT, UsersIcon } from '../constants.tsx';
 
 const TenantManagement: React.FC = () => {
-  const [tenants, setTenants] = useLocalStorage<Tenant[]>('tenants', []);
+  const [tenants, setTenants] = useTenants();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [currentTenant, setCurrentTenant] = useState<Tenant>(DEFAULT_TENANT);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     if (searchParams.get('action') === 'add') {
-      openModal(); // Open for adding new
-      // Clear the action param to prevent re-triggering
+      openModal();
       const newSearchParams = new URLSearchParams(searchParams);
       newSearchParams.delete('action');
       setSearchParams(newSearchParams, { replace: true });
     }
-  }, [searchParams, setSearchParams]); // Removed openModal from deps, ensure it's stable
-
+  }, [searchParams, setSearchParams]);
 
   const openModal = (tenant?: Tenant) => {
     if (tenant) {
@@ -77,95 +76,313 @@ const TenantManagement: React.FC = () => {
     }
   };
 
+  // Filter tenants based on search
+  const filteredTenants = tenants.filter(tenant => 
+    tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    tenant.phone.includes(searchTerm) ||
+    tenant.idNumber.includes(searchTerm)
+  );
+
   return (
-    <div className="p-6 bg-transparent"> {/* Changed background to transparent, App.tsx handles main bg */}
-      <div className="flex justify-end items-center mb-6">
-        {/* Page title is now in App.tsx's Content Header */}
-        <Button onClick={() => openModal()} variant="primary" size="md">
-          <PlusIcon className="w-5 h-5 mr-2 inline-block" />
+    <div className="p-6 lg:p-8">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
+        {/* Search */}
+        <div className="relative w-full sm:w-80">
+          <input
+            type="text"
+            placeholder="搜尋承租人..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-surface-800/50 border border-white/10 rounded-xl text-white placeholder-surface-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+        </div>
+        
+        <Button onClick={() => openModal()} variant="primary" icon={<PlusIcon className="w-4 h-4" />}>
           新增承租人
         </Button>
       </div>
 
-      <div className="bg-surface shadow-lg rounded-lg overflow-x-auto">
-        <table className="min-w-full divide-y divide-borderLight">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">姓名</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">身份證字號</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">連絡電話</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">工作</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-textSecondary uppercase tracking-wider">操作</th>
-            </tr>
-          </thead>
-          <tbody className="bg-surface divide-y divide-borderLight">
-            {tenants.length === 0 && (
-              <tr><td colSpan={5} className="px-6 py-4 text-center text-textSecondary">尚無承租人資料</td></tr>
-            )}
-            {tenants.map(tenant => (
-              <tr key={tenant.id} className="hover:bg-slate-50 transition-colors duration-150">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textPrimary">{tenant.name}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">{tenant.idNumber}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">{tenant.phone}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-textSecondary">{tenant.workDetails.job} @ {tenant.workDetails.company}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                  <Button onClick={() => openViewModal(tenant)} variant="neutral" size="sm" className="inline-flex items-center !p-1.5" title="查看">
-                    <ViewIcon className="w-4 h-4" />
-                  </Button>
-                  <Button onClick={() => openModal(tenant)} variant="neutral" size="sm" className="inline-flex items-center !p-1.5" title="編輯">
-                    <EditIcon className="w-4 h-4" />
-                  </Button>
-                  <Button onClick={() => handleDelete(tenant.id)} variant="danger" size="sm" className="inline-flex items-center !p-1.5" title="刪除">
-                    <DeleteIcon className="w-4 h-4" />
-                  </Button>
-                </td>
+      {/* Table Card */}
+      <Card padding="none" className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="modern-table w-full">
+            <thead>
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">承租人</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden md:table-cell">身份證字號</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">連絡電話</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden lg:table-cell">工作資訊</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredTenants.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center">
+                      <div className="w-16 h-16 rounded-full bg-surface-800 flex items-center justify-center mb-4">
+                        <UsersIcon className="w-8 h-8 text-surface-600" />
+                      </div>
+                      <p className="text-surface-400 mb-1">尚無承租人資料</p>
+                      <p className="text-xs text-surface-500">點擊「新增承租人」按鈕開始</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredTenants.map((tenant, index) => (
+                  <tr 
+                    key={tenant.id} 
+                    className="group animate-fade-in"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-medium text-sm">
+                          {tenant.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">{tenant.name}</p>
+                          <p className="text-xs text-surface-500 md:hidden">{tenant.phone}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-surface-400 hidden md:table-cell">
+                      {tenant.idNumber}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-surface-400 hidden sm:table-cell">
+                      {tenant.phone}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-surface-400 hidden lg:table-cell">
+                      {tenant.workDetails.job ? (
+                        <span>{tenant.workDetails.job} @ {tenant.workDetails.company}</span>
+                      ) : (
+                        <span className="text-surface-600">-</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-end gap-2">
+                        <button 
+                          onClick={() => openViewModal(tenant)} 
+                          className="icon-btn icon-btn-primary"
+                          title="查看"
+                        >
+                          <ViewIcon className="w-4 h-4 text-surface-400" />
+                        </button>
+                        <button 
+                          onClick={() => openModal(tenant)} 
+                          className="icon-btn icon-btn-primary"
+                          title="編輯"
+                        >
+                          <EditIcon className="w-4 h-4 text-surface-400" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(tenant.id)} 
+                          className="icon-btn icon-btn-danger"
+                          title="刪除"
+                        >
+                          <DeleteIcon className="w-4 h-4 text-surface-400" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Table Footer */}
+        {filteredTenants.length > 0 && (
+          <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
+            <p className="text-sm text-surface-500">
+              共 <span className="text-white font-medium">{filteredTenants.length}</span> 筆資料
+            </p>
+          </div>
+        )}
+      </Card>
 
+      {/* Add/Edit Modal */}
       {isModalOpen && (
-        <Modal isOpen={isModalOpen} onClose={closeModal} title={editingId ? '編輯承租人' : '新增承租人'} size="lg">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <Input label="承租人姓名 (1-1)" name="name" value={currentTenant.name} onChange={handleInputChange} required />
-            <Input label="身份證字號 (1-2)" name="idNumber" value={currentTenant.idNumber} onChange={handleInputChange} required />
-            <Input label="連絡電話 (1-3)" name="phone" type="tel" value={currentTenant.phone} onChange={handleInputChange} required />
+        <Modal 
+          isOpen={isModalOpen} 
+          onClose={closeModal} 
+          title={editingId ? '編輯承租人' : '新增承租人'} 
+          size="lg"
+        >
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <FormGroup title="基本資訊">
+              <Input 
+                label="承租人姓名" 
+                name="name" 
+                value={currentTenant.name} 
+                onChange={handleInputChange} 
+                placeholder="請輸入姓名"
+                required 
+              />
+              <Input 
+                label="身份證字號" 
+                name="idNumber" 
+                value={currentTenant.idNumber} 
+                onChange={handleInputChange} 
+                placeholder="請輸入身份證字號"
+                required 
+              />
+              <Input 
+                label="連絡電話" 
+                name="phone" 
+                type="tel" 
+                value={currentTenant.phone} 
+                onChange={handleInputChange} 
+                placeholder="請輸入電話號碼"
+                required 
+              />
+            </FormGroup>
             
-            <h3 className="text-md font-semibold pt-2 border-t border-borderLight mt-4 text-textPrimary">工作資訊 (1-4)</h3>
-            <Input label="職業" name="workDetails.job" value={currentTenant.workDetails.job} onChange={handleInputChange} />
-            <Input label="任職公司" name="workDetails.company" value={currentTenant.workDetails.company} onChange={handleInputChange} />
-            <Input label="職位" name="workDetails.position" value={currentTenant.workDetails.position} onChange={handleInputChange} />
+            <FormGroup title="工作資訊">
+              <Input 
+                label="職業" 
+                name="workDetails.job" 
+                value={currentTenant.workDetails.job} 
+                onChange={handleInputChange}
+                placeholder="例：工程師、教師"
+              />
+              <Input 
+                label="任職公司" 
+                name="workDetails.company" 
+                value={currentTenant.workDetails.company} 
+                onChange={handleInputChange}
+                placeholder="請輸入公司名稱"
+              />
+              <Input 
+                label="職位" 
+                name="workDetails.position" 
+                value={currentTenant.workDetails.position} 
+                onChange={handleInputChange}
+                placeholder="請輸入職位"
+              />
+            </FormGroup>
 
-            <h3 className="text-md font-semibold pt-2 border-t border-borderLight mt-4 text-textPrimary">緊急聯絡人 (1-5)</h3>
-            <Input label="姓名" name="emergencyContact.name" value={currentTenant.emergencyContact.name} onChange={handleInputChange} required/>
-            <Input label="電話" name="emergencyContact.phone" type="tel" value={currentTenant.emergencyContact.phone} onChange={handleInputChange} required/>
-            <Input label="關係" name="emergencyContact.relationship" value={currentTenant.emergencyContact.relationship} onChange={handleInputChange} required/>
+            <FormGroup title="緊急聯絡人">
+              <Input 
+                label="姓名" 
+                name="emergencyContact.name" 
+                value={currentTenant.emergencyContact.name} 
+                onChange={handleInputChange}
+                placeholder="請輸入緊急聯絡人姓名"
+                required
+              />
+              <Input 
+                label="電話" 
+                name="emergencyContact.phone" 
+                type="tel" 
+                value={currentTenant.emergencyContact.phone} 
+                onChange={handleInputChange}
+                placeholder="請輸入緊急聯絡人電話"
+                required
+              />
+              <Input 
+                label="關係" 
+                name="emergencyContact.relationship" 
+                value={currentTenant.emergencyContact.relationship} 
+                onChange={handleInputChange}
+                placeholder="例：父母、配偶、朋友"
+                required
+              />
+            </FormGroup>
             
-            <div className="flex justify-end space-x-3 pt-4">
-              <Button type="button" variant="neutral" onClick={closeModal}>取消</Button>
-              <Button type="submit" variant="primary">{editingId ? '儲存變更' : '新增承租人'}</Button>
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button type="button" variant="ghost" onClick={closeModal}>取消</Button>
+              <Button type="submit" variant="primary">
+                {editingId ? '儲存變更' : '新增承租人'}
+              </Button>
             </div>
           </form>
         </Modal>
       )}
 
+      {/* View Modal */}
       {isViewModalOpen && currentTenant && (
-        <Modal isOpen={isViewModalOpen} onClose={closeModal} title="查看承租人資料" size="lg">
-          <div className="space-y-3 text-sm text-textSecondary">
-            <p><strong>姓名:</strong> <span className="text-textPrimary">{currentTenant.name}</span></p>
-            <p><strong>身份證字號:</strong> <span className="text-textPrimary">{currentTenant.idNumber}</span></p>
-            <p><strong>連絡電話:</strong> <span className="text-textPrimary">{currentTenant.phone}</span></p>
-            <hr className="my-2 border-borderLight"/>
-            <h4 className="font-semibold text-textPrimary">工作資訊:</h4>
-            <p><strong>職業:</strong> <span className="text-textPrimary">{currentTenant.workDetails.job || '-'}</span></p>
-            <p><strong>任職公司:</strong> <span className="text-textPrimary">{currentTenant.workDetails.company || '-'}</span></p>
-            <p><strong>職位:</strong> <span className="text-textPrimary">{currentTenant.workDetails.position || '-'}</span></p>
-            <hr className="my-2 border-borderLight"/>
-            <h4 className="font-semibold text-textPrimary">緊急聯絡人:</h4>
-            <p><strong>姓名:</strong> <span className="text-textPrimary">{currentTenant.emergencyContact.name}</span></p>
-            <p><strong>電話:</strong> <span className="text-textPrimary">{currentTenant.emergencyContact.phone}</span></p>
-            <p><strong>關係:</strong> <span className="text-textPrimary">{currentTenant.emergencyContact.relationship}</span></p>
+        <Modal isOpen={isViewModalOpen} onClose={closeModal} title="承租人資料" size="lg">
+          <div className="space-y-6">
+            {/* Profile Header */}
+            <div className="flex items-center gap-4 pb-6 border-b border-white/5">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center text-white font-bold text-2xl">
+                {currentTenant.name.charAt(0)}
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-white">{currentTenant.name}</h3>
+                <p className="text-sm text-surface-400">{currentTenant.phone}</p>
+              </div>
+            </div>
+            
+            {/* Details Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">身份證字號</p>
+                <p className="text-sm font-medium text-white">{currentTenant.idNumber}</p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                <p className="text-xs text-surface-500 mb-1">連絡電話</p>
+                <p className="text-sm font-medium text-white">{currentTenant.phone}</p>
+              </div>
+            </div>
+            
+            {/* Work Info */}
+            <div>
+              <h4 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
+                <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+                工作資訊
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                  <p className="text-xs text-surface-500 mb-1">職業</p>
+                  <p className="text-sm font-medium text-white">{currentTenant.workDetails.job || '-'}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                  <p className="text-xs text-surface-500 mb-1">任職公司</p>
+                  <p className="text-sm font-medium text-white">{currentTenant.workDetails.company || '-'}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                  <p className="text-xs text-surface-500 mb-1">職位</p>
+                  <p className="text-sm font-medium text-white">{currentTenant.workDetails.position || '-'}</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Emergency Contact */}
+            <div>
+              <h4 className="text-sm font-semibold text-primary-400 mb-3 flex items-center gap-2">
+                <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+                緊急聯絡人
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                  <p className="text-xs text-surface-500 mb-1">姓名</p>
+                  <p className="text-sm font-medium text-white">{currentTenant.emergencyContact.name}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                  <p className="text-xs text-surface-500 mb-1">電話</p>
+                  <p className="text-sm font-medium text-white">{currentTenant.emergencyContact.phone}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                  <p className="text-xs text-surface-500 mb-1">關係</p>
+                  <p className="text-sm font-medium text-white">{currentTenant.emergencyContact.relationship}</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+              <Button variant="ghost" onClick={closeModal}>關閉</Button>
+              <Button variant="primary" onClick={() => { closeModal(); openModal(currentTenant); }}>
+                <EditIcon className="w-4 h-4" />
+                編輯資料
+              </Button>
+            </div>
           </div>
         </Modal>
       )}
