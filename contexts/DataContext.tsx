@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Tenant, Property, Contract, TenantRepairRequest, IndividualAsset, PotentialTenant } from '../types.ts';
 import * as googleSheets from '../services/googleSheets.ts';
+import { convertAssetInventory } from '../constants.tsx';
 
 // 資料狀態類型
 interface DataState {
@@ -62,9 +63,36 @@ function loadFromLocalStorage(): DataState {
     }
   };
 
+  const properties = loadItem<Property>(localStorageKeys.properties, []);
+  
+  // Convert old format assetInventory to new format
+  const convertedProperties = properties.map(property => {
+    if (property.assetInventory && property.assetInventory.length > 0) {
+      // Check if conversion is needed (contains items with separators like ".")
+      const needsConversion = property.assetInventory.some(item => 
+        typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
+      );
+      
+      if (needsConversion) {
+        const converted = convertAssetInventory(property.assetInventory);
+        return { ...property, assetInventory: converted };
+      }
+    }
+    return property;
+  });
+
+  // Save converted properties back if conversion happened
+  if (convertedProperties.length > 0 && JSON.stringify(properties) !== JSON.stringify(convertedProperties)) {
+    try {
+      localStorage.setItem(localStorageKeys.properties, JSON.stringify(convertedProperties));
+    } catch (err) {
+      console.warn('Failed to save converted properties:', err);
+    }
+  }
+
   return {
     tenants: loadItem<Tenant>(localStorageKeys.tenants, []),
-    properties: loadItem<Property>(localStorageKeys.properties, []),
+    properties: convertedProperties,
     contracts: loadItem<Contract>(localStorageKeys.contracts, []),
     repairRequests: loadItem<TenantRepairRequest>(localStorageKeys.repairRequests, []),
     individualAssets: loadItem<IndividualAsset>(localStorageKeys.individualAssets, []),
@@ -99,9 +127,26 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     
     try {
       const sheetsData = await googleSheets.getAllData<any>();
+      
+      // Convert old format assetInventory to new format for properties
+      const properties = (sheetsData.properties || []).map((property: Property) => {
+        if (property.assetInventory && property.assetInventory.length > 0) {
+          // Check if conversion is needed (contains items with separators like ".")
+          const needsConversion = property.assetInventory.some((item: string) => 
+            typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
+          );
+          
+          if (needsConversion) {
+            const converted = convertAssetInventory(property.assetInventory);
+            return { ...property, assetInventory: converted };
+          }
+        }
+        return property;
+      });
+      
       setData({
         tenants: sheetsData.tenants || [],
-        properties: sheetsData.properties || [],
+        properties: properties,
         contracts: sheetsData.contracts || [],
         repairRequests: sheetsData.repairRequests || [],
         individualAssets: sheetsData.individualAssets || [],

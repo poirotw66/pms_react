@@ -161,3 +161,90 @@ export const DEFAULT_INDIVIDUAL_ASSET: IndividualAsset = {
 export const DEFAULT_POTENTIAL_TENANT: PotentialTenant = {
   id: '', name: '', phone: '', requirements: '', workInfo: ''
 };
+
+// Property Asset Inventory Options
+export const EQUIPMENT_OPTIONS = [
+  '洗衣機',
+  '冰箱',
+  '電視',
+  '冷氣',
+  '熱水器',
+  '網路',
+  '第四台',
+  '天然瓦斯'
+];
+
+export const FURNITURE_OPTIONS = [
+  '床',
+  '衣櫃',
+  '沙發',
+  '桌子',
+  '椅子'
+];
+
+export const LIVING_FACILITIES_OPTIONS = [
+  '近便利商店',
+  '近傳統市場',
+  '近百貨公司',
+  '近公園綠地',
+  '近學校',
+  '近醫療機構',
+  '近夜市'
+];
+
+// All available options for matching
+export const ALL_ASSET_OPTIONS = [
+  ...EQUIPMENT_OPTIONS,
+  ...FURNITURE_OPTIONS,
+  ...LIVING_FACILITIES_OPTIONS
+];
+
+/**
+ * Convert old text format assetInventory to new checkbox format
+ * Handles formats like: ["洗衣機.冰箱.沙發"], ["洗衣機", "冰箱"], etc.
+ */
+export function convertAssetInventory(oldInventory: string[]): string[] {
+  if (!oldInventory || oldInventory.length === 0) {
+    return [];
+  }
+
+  const convertedItems: string[] = [];
+  const seenItems = new Set<string>();
+
+  for (const item of oldInventory) {
+    if (!item || typeof item !== 'string') {
+      continue;
+    }
+
+    // Try different separators: ".", ",", "、", "\n", space
+    const separators = ['.', ',', '、', '\n', ' '];
+    let items: string[] = [item];
+
+    for (const separator of separators) {
+      if (item.includes(separator)) {
+        items = item.split(separator).map(s => s.trim()).filter(s => s.length > 0);
+        break;
+      }
+    }
+
+    for (const singleItem of items) {
+      const trimmed = singleItem.trim();
+      if (!trimmed || seenItems.has(trimmed)) {
+        continue;
+      }
+
+      // Check if it matches any predefined option
+      if (ALL_ASSET_OPTIONS.includes(trimmed)) {
+        convertedItems.push(trimmed);
+        seenItems.add(trimmed);
+      } else {
+        // Keep items that don't match predefined options (like "電視櫃", "床組")
+        // They might be custom items the user wants to keep
+        convertedItems.push(trimmed);
+        seenItems.add(trimmed);
+      }
+    }
+  }
+
+  return convertedItems;
+}

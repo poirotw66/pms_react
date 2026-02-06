@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { Property, PropertyRepairRecord } from '../types.ts';
 import { useProperties } from '../contexts/DataContext.tsx';
 import { Modal } from './common/Modal.tsx';
-import { Input, Button, TextArea, FormGroup, Card } from './common/FormControls.tsx';
-import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_PROPERTY, BuildingOfficeIcon, WrenchScrewdriverIcon } from '../constants.tsx';
+import { Input, Button, TextArea, FormGroup, Card, Checkbox } from './common/FormControls.tsx';
+import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_PROPERTY, BuildingOfficeIcon, WrenchScrewdriverIcon, EQUIPMENT_OPTIONS, FURNITURE_OPTIONS, LIVING_FACILITIES_OPTIONS, convertAssetInventory } from '../constants.tsx';
 
 const PropertyManagement: React.FC = () => {
   const [properties, setProperties] = useProperties();
@@ -29,7 +29,18 @@ const PropertyManagement: React.FC = () => {
 
   const openModal = (property?: Property) => {
     if (property) {
-      setCurrentProperty({...property, assetInventory: Array.isArray(property.assetInventory) ? property.assetInventory : []});
+      let assetInventory = Array.isArray(property.assetInventory) ? property.assetInventory : [];
+      
+      // Convert old format if needed (contains items with separators)
+      const needsConversion = assetInventory.some(item => 
+        typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
+      );
+      
+      if (needsConversion) {
+        assetInventory = convertAssetInventory(assetInventory);
+      }
+      
+      setCurrentProperty({...property, assetInventory});
       setEditingId(property.id);
     } else {
       setCurrentProperty(DEFAULT_PROPERTY);
@@ -54,13 +65,27 @@ const PropertyManagement: React.FC = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    if (name === 'assetInventory') {
-      setCurrentProperty(prev => ({ ...prev, assetInventory: value.split('\n').filter(item => item.trim() !== '') }));
-    } else if (name === 'sizeInPings') {
+    if (name === 'sizeInPings') {
       setCurrentProperty(prev => ({ ...prev, [name]: parseFloat(value) || 0 }));
     } else {
       setCurrentProperty(prev => ({ ...prev, [name]: value }));
     }
+  };
+
+  const handleAssetInventoryChange = (item: string, checked: boolean) => {
+    setCurrentProperty(prev => {
+      const currentInventory = prev.assetInventory || [];
+      if (checked) {
+        // Add item if not already present
+        if (!currentInventory.includes(item)) {
+          return { ...prev, assetInventory: [...currentInventory, item] };
+        }
+      } else {
+        // Remove item
+        return { ...prev, assetInventory: currentInventory.filter(i => i !== item) };
+      }
+      return prev;
+    });
   };
 
   const handleRepairRecordChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -226,7 +251,61 @@ const PropertyManagement: React.FC = () => {
             </FormGroup>
 
             <FormGroup title="物件詳情">
-              <TextArea label="物件資產明細（每行一項）" name="assetInventory" value={currentProperty.assetInventory.join('\n')} onChange={handleInputChange} placeholder="例如：&#10;洗衣機&#10;冰箱&#10;書桌" />
+              <div className="mb-5">
+                <h4 className="text-sm font-semibold text-primary-400 mb-4 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
+                  1.物件資產明細-提供勾選設備及家具內容
+                </h4>
+                
+                {/* Equipment Section */}
+                <div className="mb-6">
+                  <h5 className="text-xs font-medium text-surface-300 mb-3">提供設備</h5>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pl-3">
+                    {EQUIPMENT_OPTIONS.map((option) => (
+                      <Checkbox
+                        key={option}
+                        id={`equipment-${option}`}
+                        label={option}
+                        checked={currentProperty.assetInventory?.includes(option) || false}
+                        onChange={(e) => handleAssetInventoryChange(option, e.target.checked)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Furniture Section */}
+                <div className="mb-6">
+                  <h5 className="text-xs font-medium text-surface-300 mb-3">提供家具</h5>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pl-3">
+                    {FURNITURE_OPTIONS.map((option) => (
+                      <Checkbox
+                        key={option}
+                        id={`furniture-${option}`}
+                        label={option}
+                        checked={currentProperty.assetInventory?.includes(option) || false}
+                        onChange={(e) => handleAssetInventoryChange(option, e.target.checked)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Living Facilities Section */}
+                <div className="mb-6">
+                  <h5 className="text-xs font-medium text-surface-300 mb-3">生活機能</h5>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pl-3">
+                    {LIVING_FACILITIES_OPTIONS.map((option) => (
+                      <Checkbox
+                        key={option}
+                        id={`facility-${option}`}
+                        label={option}
+                        checked={currentProperty.assetInventory?.includes(option) || false}
+                        onChange={(e) => handleAssetInventoryChange(option, e.target.checked)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
               <TextArea label="物件特色" name="features" value={currentProperty.features} onChange={handleInputChange} placeholder="例如：有陽台、近捷運站、可養寵物..." />
             </FormGroup>
 
