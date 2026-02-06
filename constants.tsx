@@ -145,7 +145,7 @@ export const DEFAULT_PROPERTY: Property = {
 export const DEFAULT_CONTRACT: Contract = {
   id: '', contractInternalId: '', propertyId: '', tenantId: '',
   startDate: '', endDate: '', rentAmount: 0, paymentCycle: PaymentCycle.MONTHLY,
-  paymentRecords: [], annualDiscount: false
+  paymentRecords: [], annualDiscount: false, paymentDueDay: 1, annualPaymentDates: [] // Array of {date: string, amount: number}
 };
 
 export const DEFAULT_REPAIR_REQUEST: TenantRepairRequest = {

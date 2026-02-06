@@ -53,6 +53,11 @@ export interface PaymentRecord {
   isConfirmed: boolean;
 }
 
+export interface AnnualPaymentSchedule {
+  date: string; // Payment due date (YYYY-MM-DD)
+  amount: number; // Payment amount for this date
+}
+
 export interface Contract {
   id: string;
   contractInternalId: string; // 3-1 合約編號
@@ -65,6 +70,8 @@ export interface Contract {
   paymentRecords: PaymentRecord[];
   manualStatus?: string; // Manual status override (optional)
   annualDiscount?: boolean; // Annual payment discount (half month free)
+  paymentDueDay?: number; // Payment due day (1-31) for monthly/quarterly/semi-annual cycles
+  annualPaymentDates?: AnnualPaymentSchedule[]; // Payment schedule array for annual cycle (date + amount)
 }
 
 export enum RepairRequestStatus {

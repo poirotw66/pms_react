@@ -11,6 +11,7 @@ interface RentPeriod {
   periodNumber: number;
   startDate: Date;
   endDate: Date;
+  dueDate: Date; // Payment due date for this period
   amount: number;
   isPaid: boolean;
   paymentRecord?: PaymentRecord;
@@ -50,9 +51,60 @@ function calculateRentPeriods(contract: Contract): RentPeriod[] {
 
   const monthsToAdd = getMonthsToAdd(contract.paymentCycle);
   
-  // Only process non-annual payment cycles
+  // Handle annual payment cycles separately
   if (contract.paymentCycle === PaymentCycle.ANNUALLY) {
-    return [];
+    const annualSchedules = contract.annualPaymentDates || [];
+    if (annualSchedules.length === 0) {
+      return [];
+    }
+    
+    const periods: RentPeriod[] = [];
+    const confirmedPayments = (contract.paymentRecords || []).filter(pr => pr.isConfirmed && pr.amount);
+    const usedPayments = new Set<string>();
+    
+    annualSchedules.forEach((schedule, index) => {
+      if (!schedule.date) return;
+      
+      const dueDate = new Date(schedule.date);
+      dueDate.setHours(0, 0, 0, 0);
+      
+      // For annual payments, each schedule item represents a period
+      // Period start is contract start date, period end is contract end date
+      const periodStart = new Date(startDate);
+      const periodEnd = new Date(endDate);
+      
+      // Check if payment exists for this schedule
+      let paymentRecord: PaymentRecord | undefined;
+      for (const payment of confirmedPayments) {
+        if (usedPayments.has(payment.id)) continue;
+        
+        const paymentDate = new Date(payment.paymentDate);
+        paymentDate.setHours(0, 0, 0, 0);
+        
+        // Check if payment date is close to due date (within 30 days before or after)
+        const daysDiff = Math.abs(paymentDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24);
+        const amountMatch = Math.abs(payment.amount - (schedule.amount || 0)) <= 1; // Allow 1 NT$ difference
+        
+        if (daysDiff <= 30 && amountMatch) {
+          paymentRecord = payment;
+          usedPayments.add(payment.id);
+          break;
+        }
+      }
+      
+      periods.push({
+        periodNumber: index + 1,
+        startDate: periodStart,
+        endDate: periodEnd,
+        dueDate: dueDate,
+        amount: schedule.amount || 0,
+        isPaid: !!paymentRecord,
+        paymentRecord: paymentRecord,
+        matchedPaymentId: paymentRecord?.id
+      });
+    });
+    
+    return periods;
   }
 
   // Get all confirmed payments
@@ -73,6 +125,34 @@ function calculateRentPeriods(contract: Contract): RentPeriod[] {
     if (periodEnd > endDate) {
       periodEnd.setTime(endDate.getTime());
     }
+
+    // Calculate payment due date for this period
+    const paymentDueDay = contract.paymentDueDay || 1; // Default to 1st if not set
+    const dueDate = new Date(periodStart);
+    
+    // Set due date based on payment cycle
+    if (contract.paymentCycle === PaymentCycle.MONTHLY) {
+      // Monthly: due date is paymentDueDay of the period start month
+      const daysInMonth = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0).getDate();
+      dueDate.setDate(Math.min(paymentDueDay, daysInMonth));
+    } else if (contract.paymentCycle === PaymentCycle.QUARTERLY) {
+      // Quarterly: due date is paymentDueDay of the first month of the quarter
+      // Quarters: Q1 (Jan-Mar), Q2 (Apr-Jun), Q3 (Jul-Sep), Q4 (Oct-Dec)
+      const quarterStartMonth = Math.floor(periodStart.getMonth() / 3) * 3; // 0, 3, 6, or 9
+      dueDate.setFullYear(periodStart.getFullYear());
+      dueDate.setMonth(quarterStartMonth, 1); // Set to first day of quarter start month
+      const daysInMonth = new Date(periodStart.getFullYear(), quarterStartMonth + 1, 0).getDate();
+      dueDate.setDate(Math.min(paymentDueDay, daysInMonth));
+    } else if (contract.paymentCycle === PaymentCycle.SEMIANNUALLY) {
+      // Semi-annually: due date is paymentDueDay of January or July
+      const halfYearStartMonth = periodStart.getMonth() < 6 ? 0 : 6; // January (0) or July (6)
+      dueDate.setFullYear(periodStart.getFullYear());
+      dueDate.setMonth(halfYearStartMonth, 1); // Set to first day of half year start month
+      const daysInMonth = new Date(periodStart.getFullYear(), halfYearStartMonth + 1, 0).getDate();
+      dueDate.setDate(Math.min(paymentDueDay, daysInMonth));
+    }
+    
+    dueDate.setHours(0, 0, 0, 0);
 
     // Check if this period has been paid
     // First check for payment within the period
@@ -135,6 +215,7 @@ function calculateRentPeriods(contract: Contract): RentPeriod[] {
       periodNumber,
       startDate: periodStart,
       endDate: periodEnd,
+      dueDate: dueDate,
       amount: contract.rentAmount,
       isPaid: !!paymentRecord,
       paymentRecord: paymentRecord,
@@ -398,7 +479,13 @@ const ContractManagement: React.FC = () => {
       setCurrentContract(contract);
       setEditingId(contract.id);
     } else {
-      setCurrentContract(DEFAULT_CONTRACT);
+      // Set default payment due day based on payment cycle
+      const defaultContract = {
+        ...DEFAULT_CONTRACT,
+        paymentDueDay: 1, // Default to 1st of month
+        annualPaymentDates: []
+      };
+      setCurrentContract(defaultContract);
       setEditingId(null);
     }
     setIsModalOpen(true);
@@ -439,12 +526,63 @@ const ContractManagement: React.FC = () => {
     const { name, value, type } = e.target;
     if (name === 'rentAmount') {
       setCurrentContract(prev => ({ ...prev, [name]: parseFloat(value) || 0 }));
+    } else if (name === 'paymentDueDay') {
+      const day = parseInt(value) || 1;
+      setCurrentContract(prev => ({ 
+        ...prev, 
+        [name]: Math.max(1, Math.min(31, day)) // Clamp between 1-31
+      }));
     } else if (type === 'checkbox') {
       const checked = (e.target as HTMLInputElement).checked;
       setCurrentContract(prev => ({ ...prev, [name]: checked }));
+    } else if (name === 'paymentCycle') {
+      // When payment cycle changes, reset payment due config
+      setCurrentContract(prev => ({ 
+        ...prev, 
+        [name]: value as PaymentCycle,
+        paymentDueDay: prev.paymentDueDay || 1,
+        annualPaymentDates: value === PaymentCycle.ANNUALLY ? (prev.annualPaymentDates || []) : []
+      }));
     } else {
       setCurrentContract(prev => ({ ...prev, [name]: value }));
     }
+  };
+
+  // Handle annual payment dates
+  const handleAddAnnualPaymentDate = () => {
+    setCurrentContract(prev => {
+      const monthlyRent = prev.rentAmount || 0;
+      const hasDiscount = prev.annualDiscount || false;
+      const totalAnnualAmount = hasDiscount ? monthlyRent * 11.5 : monthlyRent * 12;
+      const existingDates = prev.annualPaymentDates || [];
+      const defaultAmount = existingDates.length === 0 ? totalAnnualAmount : Math.max(0, totalAnnualAmount - existingDates.reduce((sum, item) => sum + (item.amount || 0), 0));
+      
+      return {
+        ...prev,
+        annualPaymentDates: [...existingDates, { date: '', amount: defaultAmount }]
+      };
+    });
+  };
+
+  const handleRemoveAnnualPaymentDate = (index: number) => {
+    setCurrentContract(prev => ({
+      ...prev,
+      annualPaymentDates: (prev.annualPaymentDates || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleAnnualPaymentDateChange = (index: number, field: 'date' | 'amount', value: string | number) => {
+    setCurrentContract(prev => {
+      const schedules = [...(prev.annualPaymentDates || [])];
+      if (!schedules[index]) {
+        schedules[index] = { date: '', amount: 0 };
+      }
+      schedules[index] = {
+        ...schedules[index],
+        [field]: field === 'amount' ? (typeof value === 'number' ? value : parseFloat(value as string) || 0) : value
+      };
+      return { ...prev, annualPaymentDates: schedules };
+    });
   };
 
   const handlePaymentRecordChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -623,15 +761,98 @@ const ContractManagement: React.FC = () => {
     
     // Check if rent payment is due (unified for all payment cycles)
     if (contract.paymentCycle === PaymentCycle.ANNUALLY) {
-      // For annual payment cycle, check if payment has been confirmed
-      const hasConfirmedPayment = contract.paymentRecords && contract.paymentRecords.some(pr => pr.isConfirmed);
-      if (!hasConfirmedPayment) {
-        return { label: '待收款', badge: 'badge-warning' };
+      // For annual payment cycle, check annual payment dates
+      const annualPaymentDates = contract.annualPaymentDates || [];
+      if (annualPaymentDates.length === 0) {
+        // No payment dates set, check if any payment has been confirmed
+        const hasConfirmedPayment = contract.paymentRecords && contract.paymentRecords.some(pr => pr.isConfirmed);
+        if (!hasConfirmedPayment) {
+          return { label: '待收款', badge: 'badge-warning' };
+        }
+      } else {
+        // Check each annual payment date
+        let hasUpcomingDueDate = false;
+        let hasOverdueUnpaid = false;
+        
+        for (const schedule of annualPaymentDates) {
+          if (!schedule.date) continue;
+          const dueDate = new Date(schedule.date);
+          dueDate.setHours(0, 0, 0, 0);
+          
+          // Check if payment for this date exists
+          const hasPaymentForDate = contract.paymentRecords?.some(pr => {
+            if (!pr.isConfirmed) return false;
+            const paymentDate = new Date(pr.paymentDate);
+            paymentDate.setHours(0, 0, 0, 0);
+            const daysDiff = Math.abs(paymentDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24);
+            const amountMatch = Math.abs(pr.amount - (schedule.amount || 0)) <= 1; // Allow 1 NT$ difference
+            // Check if payment date is close to due date (within 30 days before or after) and amount matches
+            return daysDiff <= 30 && amountMatch;
+          });
+          
+          if (today < dueDate) {
+            hasUpcomingDueDate = true;
+          } else if (today >= dueDate && !hasPaymentForDate) {
+            hasOverdueUnpaid = true;
+          }
+        }
+        
+        if (hasOverdueUnpaid) {
+          return { label: '待收款', badge: 'badge-warning' };
+        }
+        if (hasUpcomingDueDate) {
+          return { label: '未到時間', badge: 'badge-info' };
+        }
       }
     } else {
-      // For monthly, quarterly, semi-annual cycles, check if current period is unpaid
-      if (isRentPaymentDue(contract)) {
+      // For monthly, quarterly, semi-annual cycles
+      const rentPeriods = calculateRentPeriods(contract);
+      if (rentPeriods.length === 0) {
+        return { label: '正常', badge: 'badge-success' };
+      }
+      
+      // Find current or next unpaid period
+      let currentOrNextPeriod: RentPeriod | undefined;
+      
+      // First, try to find current period
+      currentOrNextPeriod = rentPeriods.find(period => {
+        const periodStart = new Date(period.startDate);
+        periodStart.setHours(0, 0, 0, 0);
+        const periodEnd = new Date(period.endDate);
+        periodEnd.setHours(0, 0, 0, 0);
+        return today >= periodStart && today <= periodEnd;
+      });
+      
+      // If no current period, find next unpaid period
+      if (!currentOrNextPeriod) {
+        currentOrNextPeriod = rentPeriods.find(period => {
+          const periodStart = new Date(period.startDate);
+          periodStart.setHours(0, 0, 0, 0);
+          return periodStart > today && !period.isPaid;
+        });
+      }
+      
+      // Check if there are any overdue unpaid periods
+      const hasOverdueUnpaid = rentPeriods.some(period => {
+        const periodEnd = new Date(period.endDate);
+        periodEnd.setHours(0, 0, 0, 0);
+        return today > periodEnd && !period.isPaid;
+      });
+      
+      if (hasOverdueUnpaid) {
         return { label: '待收款', badge: 'badge-warning' };
+      }
+      
+      // Check if current/next period's due date has not arrived yet
+      if (currentOrNextPeriod && !currentOrNextPeriod.isPaid) {
+        const dueDate = new Date(currentOrNextPeriod.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+        
+        if (today < dueDate) {
+          return { label: '未到時間', badge: 'badge-info' };
+        } else {
+          return { label: '待收款', badge: 'badge-warning' };
+        }
       }
     }
     
@@ -940,22 +1161,107 @@ const ContractManagement: React.FC = () => {
                 options={paymentCycleOptions} 
                 required 
               />
-              {currentContract.paymentCycle === PaymentCycle.ANNUALLY && (
-                <div className="mb-4">
-                  <label className="flex items-center gap-3 cursor-pointer p-4 rounded-xl bg-surface-800/50 border border-white/5 hover:border-primary-500/30 transition-colors">
-                    <input 
-                      type="checkbox" 
-                      name="annualDiscount" 
-                      checked={currentContract.annualDiscount || false} 
-                      onChange={handleInputChange}
-                      className="w-5 h-5 rounded border-white/20 bg-surface-800 text-primary-500 focus:ring-primary-500 focus:ring-offset-0"
+              
+              {/* Payment Due Date Configuration */}
+              {currentContract.paymentCycle !== PaymentCycle.ANNUALLY && (
+                <div>
+                  <div className="flex items-center gap-3">
+                    <Input 
+                      label="收款日期"
+                      name="paymentDueDay" 
+                      type="number" 
+                      value={currentContract.paymentDueDay || 1} 
+                      onChange={handleInputChange} 
+                      placeholder="1"
+                      min="1"
+                      max="31"
+                      className="w-24"
+                      required 
                     />
-                    <div>
-                      <p className="text-sm font-medium text-white">年繳優惠</p>
-                      <p className="text-xs text-surface-500">優惠半個月租金（年繳金額 = 月租金 × 11.5）</p>
-                    </div>
-                  </label>
+                    <span className="text-sm text-surface-400 mt-6">
+                      {currentContract.paymentCycle === PaymentCycle.MONTHLY && '號（每月）'}
+                      {currentContract.paymentCycle === PaymentCycle.QUARTERLY && '號（每季第一個月）'}
+                      {currentContract.paymentCycle === PaymentCycle.SEMIANNUALLY && '號（每半年第一個月）'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-surface-500 mt-1">
+                    {currentContract.paymentCycle === PaymentCycle.MONTHLY && '例如：1 表示每月1號繳款'}
+                    {currentContract.paymentCycle === PaymentCycle.QUARTERLY && '例如：1 表示每季第一個月（1、4、7、10月）1號繳款'}
+                    {currentContract.paymentCycle === PaymentCycle.SEMIANNUALLY && '例如：1 表示每半年第一個月（1、7月）1號繳款'}
+                  </p>
                 </div>
+              )}
+              
+              {currentContract.paymentCycle === PaymentCycle.ANNUALLY && (
+                <>
+                  <div>
+                    <div className="space-y-3">
+                      {(currentContract.annualPaymentDates || []).map((schedule, index) => (
+                        <div key={index} className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
+                          <div className="flex items-center justify-between mb-3">
+                            <label className="text-sm font-medium text-surface-300">
+                              預期收款日期 {index + 1}
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAnnualPaymentDate(index)}
+                              className="icon-btn icon-btn-danger !w-8 !h-8"
+                              title="刪除此日期"
+                            >
+                              <DeleteIcon className="w-4 h-4 text-surface-400" />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <Input 
+                              label="收款日期"
+                              type="date" 
+                              value={schedule?.date || ''} 
+                              onChange={(e) => handleAnnualPaymentDateChange(index, 'date', e.target.value)} 
+                              placeholder="選擇日期"
+                              required
+                            />
+                            <Input 
+                              label="收款金額 (NT$)"
+                              type="number" 
+                              value={schedule?.amount || 0} 
+                              onChange={(e) => handleAnnualPaymentDateChange(index, 'amount', parseFloat(e.target.value) || 0)} 
+                              placeholder="請輸入金額"
+                              required
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleAddAnnualPaymentDate}
+                        icon={<PlusIcon className="w-4 h-4" />}
+                        size="sm"
+                      >
+                        新增收款日期
+                      </Button>
+                    </div>
+                    <p className="text-xs text-surface-500 mt-2">
+                      年繳可設定多筆預期收款日期，每筆包含日期和金額，例如：1月15日 $60,000、7月15日 $60,000
+                    </p>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <label className="flex items-center gap-3 cursor-pointer p-4 rounded-xl bg-surface-800/50 border border-white/5 hover:border-primary-500/30 transition-colors">
+                      <input 
+                        type="checkbox" 
+                        name="annualDiscount" 
+                        checked={currentContract.annualDiscount || false} 
+                        onChange={handleInputChange}
+                        className="w-5 h-5 rounded border-white/20 bg-surface-800 text-primary-500 focus:ring-primary-500 focus:ring-offset-0"
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-white">年繳優惠</p>
+                        <p className="text-xs text-surface-500">優惠半個月租金（年繳金額 = 月租金 × 11.5）</p>
+                      </div>
+                    </label>
+                  </div>
+                </>
               )}
             </FormGroup>
             
@@ -1009,9 +1315,8 @@ const ContractManagement: React.FC = () => {
               </div>
             )}
 
-            {/* Rent Periods Status - Only for non-annual payment cycles */}
-            {currentContract.paymentCycle !== PaymentCycle.ANNUALLY && (
-              <div>
+            {/* Rent Periods Status - Show for all payment cycles */}
+            <div>
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="text-sm font-semibold text-primary-400 flex items-center gap-2">
                     <span className="w-1 h-4 bg-primary-500 rounded-full"></span>
@@ -1053,6 +1358,37 @@ const ContractManagement: React.FC = () => {
                               return `${year}-${month}-${day}`;
                             };
                             
+                            // Determine period status based on payment status and due date
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            const dueDate = new Date(period.dueDate);
+                            dueDate.setHours(0, 0, 0, 0);
+                            
+                            let statusLabel: string;
+                            let statusBadge: string;
+                            
+                            if (period.isPaid) {
+                              // Check if payment amount matches expected amount
+                              const paymentAmount = period.paymentRecord?.amount || 0;
+                              const expectedAmount = period.amount;
+                              const amountDifference = Math.abs(paymentAmount - expectedAmount);
+                              
+                              // If amount difference is more than 1 NT$, show payment anomaly
+                              if (amountDifference > 1) {
+                                statusLabel = '款項異常';
+                                statusBadge = 'badge-danger';
+                              } else {
+                                statusLabel = '已繳交';
+                                statusBadge = 'badge-success';
+                              }
+                            } else if (today < dueDate) {
+                              statusLabel = '未到時間';
+                              statusBadge = 'badge-info';
+                            } else {
+                              statusLabel = '待收款';
+                              statusBadge = 'badge-warning';
+                            }
+                            
                             return (
                               <tr key={period.periodNumber}>
                                 <td className="px-4 py-3 text-sm text-surface-300">第 {period.periodNumber} 期</td>
@@ -1061,8 +1397,8 @@ const ContractManagement: React.FC = () => {
                                 </td>
                                 <td className="px-4 py-3 text-sm text-white font-medium">${period.amount.toLocaleString()}</td>
                                 <td className="px-4 py-3">
-                                  <span className={`badge ${period.isPaid ? 'badge-success' : 'badge-warning'}`}>
-                                    {period.isPaid ? '已繳交' : '尚未繳交'}
+                                  <span className={`badge ${statusBadge}`}>
+                                    {statusLabel}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-sm text-surface-400">
@@ -1077,7 +1413,6 @@ const ContractManagement: React.FC = () => {
                   );
                 })()}
               </div>
-            )}
 
             {/* Payment Records */}
             <div>
@@ -1109,36 +1444,74 @@ const ContractManagement: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {(currentContract.paymentRecords || []).map(pr => (
-                        <tr key={pr.id}>
-                          <td className="px-4 py-3 text-sm text-surface-300">{pr.paymentDate}</td>
-                          <td className="px-4 py-3 text-sm text-white font-medium">${pr.amount.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-sm text-surface-400">{pr.method}</td>
-                          <td className="px-4 py-3">
-                            <span className={`badge ${pr.isConfirmed ? 'badge-success' : 'badge-warning'}`}>
-                              {pr.isConfirmed ? '已確認' : '待確認'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-1">
-                              <button 
-                                onClick={() => openPaymentModal(currentContract, pr)} 
-                                className="icon-btn icon-btn-primary !w-8 !h-8"
-                                title="編輯"
-                              >
-                                <EditIcon className="w-3.5 h-3.5 text-surface-400" />
-                              </button>
-                              <button 
-                                onClick={() => removePaymentRecord(currentContract.id, pr.id)} 
-                                className="icon-btn icon-btn-danger !w-8 !h-8"
-                                title="刪除"
-                              >
-                                <DeleteIcon className="w-3.5 h-3.5 text-surface-400" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {(currentContract.paymentRecords || []).map(pr => {
+                        // Find matching period for this payment record
+                        const rentPeriods = calculateRentPeriods(currentContract);
+                        const matchedPeriod = rentPeriods.find(period => 
+                          period.paymentRecord?.id === pr.id || period.matchedPaymentId === pr.id
+                        );
+                        
+                        // For annual contracts, check if amount matches expected amount
+                        let amountStatus: { label: string; badge: string } | null = null;
+                        if (currentContract.paymentCycle === PaymentCycle.ANNUALLY && pr.isConfirmed && matchedPeriod) {
+                          const amountDifference = Math.abs(pr.amount - matchedPeriod.amount);
+                          if (amountDifference > 1) {
+                            amountStatus = { label: '款項異常', badge: 'badge-danger' };
+                          }
+                        }
+                        
+                        return (
+                          <tr key={pr.id}>
+                            <td className="px-4 py-3 text-sm text-surface-300">{pr.paymentDate}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col gap-1">
+                                <span className="text-sm text-white font-medium">${pr.amount.toLocaleString()}</span>
+                                {matchedPeriod && (
+                                  <span className="text-xs text-surface-500">
+                                    對應第 {matchedPeriod.periodNumber} 期
+                                    {matchedPeriod.amount !== pr.amount && (
+                                      <span className="text-danger-400 ml-1">
+                                        (預期: ${matchedPeriod.amount.toLocaleString()})
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-surface-400">{pr.method}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col gap-1">
+                                <span className={`badge ${pr.isConfirmed ? 'badge-success' : 'badge-warning'}`}>
+                                  {pr.isConfirmed ? '已確認' : '待確認'}
+                                </span>
+                                {amountStatus && (
+                                  <span className={`badge ${amountStatus.badge} text-xs`}>
+                                    {amountStatus.label}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1">
+                                <button 
+                                  onClick={() => openPaymentModal(currentContract, pr)} 
+                                  className="icon-btn icon-btn-primary !w-8 !h-8"
+                                  title="編輯"
+                                >
+                                  <EditIcon className="w-3.5 h-3.5 text-surface-400" />
+                                </button>
+                                <button 
+                                  onClick={() => removePaymentRecord(currentContract.id, pr.id)} 
+                                  className="icon-btn icon-btn-danger !w-8 !h-8"
+                                  title="刪除"
+                                >
+                                  <DeleteIcon className="w-3.5 h-3.5 text-surface-400" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
