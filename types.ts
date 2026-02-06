@@ -63,6 +63,8 @@ export interface Contract {
   rentAmount: number;
   paymentCycle: PaymentCycle;
   paymentRecords: PaymentRecord[];
+  manualStatus?: string; // Manual status override (optional)
+  annualDiscount?: boolean; // Annual payment discount (half month free)
 }
 
 export enum RepairRequestStatus {

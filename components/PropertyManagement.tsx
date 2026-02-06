@@ -66,7 +66,13 @@ const PropertyManagement: React.FC = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     if (name === 'sizeInPings') {
-      setCurrentProperty(prev => ({ ...prev, [name]: parseFloat(value) || 0 }));
+      // Allow empty string for user input, only convert to number when value exists
+      if (value === '') {
+        setCurrentProperty(prev => ({ ...prev, [name]: 0 }));
+      } else {
+        const numValue = parseFloat(value);
+        setCurrentProperty(prev => ({ ...prev, [name]: isNaN(numValue) ? 0 : numValue }));
+      }
     } else {
       setCurrentProperty(prev => ({ ...prev, [name]: value }));
     }
@@ -247,7 +253,7 @@ const PropertyManagement: React.FC = () => {
             <FormGroup title="基本資訊">
               <Input label="物件編號" name="propertyInternalId" value={currentProperty.propertyInternalId} onChange={handleInputChange} placeholder="例：A001" required />
               <Input label="物件地址" name="address" value={currentProperty.address} onChange={handleInputChange} placeholder="請輸入完整地址" required />
-              <Input label="物件坪數" name="sizeInPings" type="number" step="0.01" value={currentProperty.sizeInPings} onChange={handleInputChange} placeholder="請輸入坪數" required />
+              <Input label="物件坪數" name="sizeInPings" type="number" step="0.01" value={currentProperty.sizeInPings === 0 ? '' : String(currentProperty.sizeInPings)} onChange={handleInputChange} placeholder="請輸入坪數" required />
             </FormGroup>
 
             <FormGroup title="物件詳情">

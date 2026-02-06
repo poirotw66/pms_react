@@ -50,9 +50,9 @@ export function clearGoogleSheetsApiUrl(): void {
 }
 
 /**
- * 發送 GET 請求
+ * 發送 GET 請求（帶超時機制）
  */
-async function fetchGet<T>(params: Record<string, string>): Promise<ApiResponse<T>> {
+async function fetchGet<T>(params: Record<string, string>, timeout: number = 30000): Promise<ApiResponse<T>> {
   if (!GOOGLE_SHEETS_API_URL) {
     throw new Error('Google Sheets API URL 未設定');
   }
@@ -62,32 +62,70 @@ async function fetchGet<T>(params: Record<string, string>): Promise<ApiResponse<
     url.searchParams.append(key, value);
   });
   
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    mode: 'cors',
-  });
+  // 建立 AbortController 用於超時控制
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   
-  return response.json();
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      mode: 'cors',
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('請求超時，請檢查網路連線或稍後再試');
+    }
+    throw error;
+  }
 }
 
 /**
- * 發送 POST 請求
+ * 發送 POST 請求（帶超時機制）
  */
-async function fetchPost<T>(body: Record<string, any>): Promise<ApiResponse<T>> {
+async function fetchPost<T>(body: Record<string, any>, timeout: number = 30000): Promise<ApiResponse<T>> {
   if (!GOOGLE_SHEETS_API_URL) {
     throw new Error('Google Sheets API URL 未設定');
   }
   
-  const response = await fetch(GOOGLE_SHEETS_API_URL, {
-    method: 'POST',
-    mode: 'cors',
-    headers: {
-      'Content-Type': 'text/plain', // Google Apps Script 需要這個
-    },
-    body: JSON.stringify(body),
-  });
+  // 建立 AbortController 用於超時控制
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   
-  return response.json();
+  try {
+    const response = await fetch(GOOGLE_SHEETS_API_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'text/plain', // Google Apps Script 需要這個
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('請求超時，請檢查網路連線或稍後再試');
+    }
+    throw error;
+  }
 }
 
 /**

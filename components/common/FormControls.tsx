@@ -7,32 +7,45 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   hint?: string;
 }
 
-export const Input: React.FC<InputProps> = ({ label, id, error, hint, className = '', ...props }) => (
-  <div className="mb-5">
-    <label htmlFor={id} className="block text-sm font-medium text-surface-300 mb-2">
-      {label}
-      {props.required && <span className="text-primary-400 ml-1">*</span>}
-    </label>
-    <input
-      id={id}
-      {...props}
-      className={`
-        input-modern
-        w-full px-4 py-3 
-        bg-surface-800/50 
-        border border-white/10
-        rounded-xl
-        text-white placeholder-surface-500
-        focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20
-        transition-all duration-200
-        ${error ? 'border-danger-500 focus:border-danger-500 focus:ring-danger-500/20' : ''}
-        ${className}
-      `}
-    />
-    {hint && !error && <p className="mt-1.5 text-xs text-surface-500">{hint}</p>}
-    {error && <p className="mt-1.5 text-xs text-danger-400">{error}</p>}
-  </div>
-);
+export const Input: React.FC<InputProps> = ({ label, id, error, hint, className = '', ...props }) => {
+  const isNumberType = props.type === 'number';
+  
+  // Prevent wheel event from changing number input value
+  const handleWheel = (e: React.WheelEvent<HTMLInputElement>) => {
+    if (isNumberType && document.activeElement === e.currentTarget) {
+      e.currentTarget.blur();
+    }
+  };
+  
+  return (
+    <div className="mb-5">
+      <label htmlFor={id} className="block text-sm font-medium text-surface-300 mb-2">
+        {label}
+        {props.required && <span className="text-primary-400 ml-1">*</span>}
+      </label>
+      <input
+        id={id}
+        {...props}
+        onWheel={isNumberType ? handleWheel : props.onWheel}
+        className={`
+          input-modern
+          w-full px-4 py-3 
+          bg-surface-800/50 
+          border border-white/10
+          rounded-xl
+          text-white placeholder-surface-500
+          focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20
+          transition-all duration-200
+          ${error ? 'border-danger-500 focus:border-danger-500 focus:ring-danger-500/20' : ''}
+          ${isNumberType ? '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none' : ''}
+          ${className}
+        `}
+      />
+      {hint && !error && <p className="mt-1.5 text-xs text-surface-500">{hint}</p>}
+      {error && <p className="mt-1.5 text-xs text-danger-400">{error}</p>}
+    </div>
+  );
+};
 
 interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   label: string;

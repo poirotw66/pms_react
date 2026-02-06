@@ -178,11 +178,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (storageMode === 'localStorage') {
         saveToLocalStorage(localStorageKeys[key], newValue as any[]);
       } else {
-        // Google Sheets 非同步儲存
-        googleSheets.syncSheet(key as googleSheets.SheetName, newValue as any[]).catch(err => {
-          console.error(`同步 ${key} 到 Google Sheets 失敗:`, err);
-          setError(`同步失敗: ${err.message}`);
-        });
+        // Google Sheets 非同步儲存（使用 setTimeout 避免阻塞 UI）
+        setTimeout(() => {
+          googleSheets.syncSheet(key as googleSheets.SheetName, newValue as any[])
+            .catch(err => {
+              console.error(`同步 ${key} 到 Google Sheets 失敗:`, err);
+              // 使用 setTimeout 避免在錯誤處理時阻塞 UI
+              setTimeout(() => {
+                setError(`同步失敗: ${err.message || '未知錯誤'}`);
+              }, 0);
+            });
+        }, 0);
       }
       
       return newData;
