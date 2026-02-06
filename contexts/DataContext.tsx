@@ -185,7 +185,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               console.error(`同步 ${key} 到 Google Sheets 失敗:`, err);
               // 使用 setTimeout 避免在錯誤處理時阻塞 UI
               setTimeout(() => {
-                setError(`同步失敗: ${err.message || '未知錯誤'}`);
+                const errorMessage = err.message || '未知錯誤';
+                // 只在重要錯誤時顯示給用戶，避免過多錯誤訊息
+                if (!errorMessage.includes('CORS') && !errorMessage.includes('Failed to fetch')) {
+                  setError(`同步 ${key} 失敗: ${errorMessage}`);
+                } else {
+                  // CORS 錯誤通常只需要在控制台記錄，不需要一直顯示給用戶
+                  console.warn('Google Sheets 連線問題，資料已儲存在本地，請檢查設定');
+                }
               }, 0);
             });
         }, 0);

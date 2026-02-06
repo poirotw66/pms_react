@@ -85,6 +85,9 @@ async function fetchGet<T>(params: Record<string, string>, timeout: number = 300
     if (error.name === 'AbortError') {
       throw new Error('請求超時，請檢查網路連線或稍後再試');
     }
+    if (error.message?.includes('CORS') || error.message?.includes('Failed to fetch')) {
+      throw new Error('CORS 錯誤：請確認 Google Apps Script Web App 的執行權限設定為「任何人」可以存取');
+    }
     throw error;
   }
 }
@@ -123,6 +126,9 @@ async function fetchPost<T>(body: Record<string, any>, timeout: number = 30000):
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
       throw new Error('請求超時，請檢查網路連線或稍後再試');
+    }
+    if (error.message?.includes('CORS') || error.message?.includes('Failed to fetch')) {
+      throw new Error('CORS 錯誤：請確認 Google Apps Script Web App 的執行權限設定為「任何人」可以存取');
     }
     throw error;
   }
@@ -211,14 +217,30 @@ export async function deleteRecord(sheetName: SheetName, id: string): Promise<vo
  * 同步整個工作表的資料
  */
 export async function syncSheet<T>(sheetName: SheetName, records: T[]): Promise<void> {
-  const response = await fetchPost({
-    action: 'sync',
-    sheet: sheetName,
-    records: records,
-  });
-  
-  if (!response.success) {
-    throw new Error(response.error || '同步資料失敗');
+  try {
+    const response = await fetchPost({
+      action: 'sync',
+      sheet: sheetName,
+      records: records,
+    });
+    
+    if (!response.success) {
+      // 提供更詳細的錯誤訊息
+      const errorMsg = response.error || '同步資料失敗';
+      if (errorMsg.includes('試算表服務無法正常運作')) {
+        throw new Error('試算表服務錯誤：請確認試算表 ID 正確，且 Google Apps Script 有權限存取該試算表');
+      }
+      if (errorMsg.includes('超出邊界')) {
+        throw new Error('資料量過大：請檢查試算表是否有足夠的列數，或減少單次同步的資料量');
+      }
+      throw new Error(errorMsg);
+    }
+  } catch (error: any) {
+    // 重新拋出已處理的錯誤，或包裝未處理的錯誤
+    if (error.message) {
+      throw error;
+    }
+    throw new Error(`同步 ${sheetName} 失敗: ${error.message || '未知錯誤'}`);
   }
 }
 
