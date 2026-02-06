@@ -302,6 +302,8 @@ const ContractManagement: React.FC = () => {
   const [editingPaymentRecordId, setEditingPaymentRecordId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'contractId' | 'startDate' | 'endDate' | 'rentAmount' | 'status'>('contractId');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     if (searchParams.get('action') === 'add') {
@@ -657,21 +659,76 @@ const ContractManagement: React.FC = () => {
     getPropertyAddress(contract.propertyId).toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Sort contracts
+  const sortedContracts = [...filteredContracts].sort((a, b) => {
+    let comparison = 0;
+    
+    switch (sortBy) {
+      case 'contractId':
+        comparison = a.contractInternalId.localeCompare(b.contractInternalId, 'zh-TW');
+        break;
+      case 'startDate':
+        comparison = new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+        break;
+      case 'endDate':
+        comparison = new Date(a.endDate).getTime() - new Date(b.endDate).getTime();
+        break;
+      case 'rentAmount':
+        comparison = a.rentAmount - b.rentAmount;
+        break;
+      case 'status':
+        const statusA = contractStatusCache.get(a.id) || getContractStatus(a);
+        const statusB = contractStatusCache.get(b.id) || getContractStatus(b);
+        comparison = statusA.label.localeCompare(statusB.label, 'zh-TW');
+        break;
+    }
+    
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: typeof sortBy) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+  };
+
   return (
     <div className="p-6 lg:p-8">
       {/* Header Actions */}
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center mb-6">
-        <div className="relative w-full sm:w-80">
-          <input
-            type="text"
-            placeholder="搜尋合約..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-surface-800/50 border border-white/10 rounded-xl text-white placeholder-surface-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+          <div className="relative w-full sm:w-80">
+            <input
+              type="text"
+              placeholder="搜尋合約..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-surface-800/50 border border-white/10 rounded-xl text-white placeholder-surface-500 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-all"
+            />
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+          </div>
+          
+          <Select
+            label="排序方式"
+            name="sortBy"
+            value={sortBy}
+            onChange={(e) => {
+              const newSortBy = e.target.value as typeof sortBy;
+              handleSort(newSortBy);
+            }}
+            options={[
+              { value: 'contractId', label: '合約編號' },
+              { value: 'startDate', label: '起始日期' },
+              { value: 'endDate', label: '結束日期' },
+              { value: 'rentAmount', label: '租金金額' },
+              { value: 'status', label: '狀態' }
+            ]}
           />
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
         </div>
         
         <Button onClick={() => openModal()} variant="primary" icon={<PlusIcon className="w-4 h-4" />}>
@@ -685,16 +742,46 @@ const ContractManagement: React.FC = () => {
           <table className="modern-table w-full">
             <thead>
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">合約編號</th>
+                <th 
+                  className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider cursor-pointer hover:text-primary-400 transition-colors select-none"
+                  onClick={() => handleSort('contractId')}
+                >
+                  <div className="flex items-center gap-2">
+                    <span>合約編號</span>
+                    {sortBy === 'contractId' && (
+                      <span className="text-primary-500">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden lg:table-cell">物件</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">承租人</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden md:table-cell">合約期間</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider">狀態</th>
+                <th 
+                  className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider hidden md:table-cell cursor-pointer hover:text-primary-400 transition-colors select-none"
+                  onClick={() => handleSort('startDate')}
+                >
+                  <div className="flex items-center gap-2">
+                    <span>合約期間</span>
+                    {sortBy === 'startDate' && (
+                      <span className="text-primary-500">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-4 text-left text-xs font-semibold text-surface-400 uppercase tracking-wider cursor-pointer hover:text-primary-400 transition-colors select-none"
+                  onClick={() => handleSort('status')}
+                >
+                  <div className="flex items-center gap-2">
+                    <span>狀態</span>
+                    {sortBy === 'status' && (
+                      <span className="text-primary-500">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
                 <th className="px-6 py-4 text-right text-xs font-semibold text-surface-400 uppercase tracking-wider">操作</th>
               </tr>
             </thead>
             <tbody>
-              {filteredContracts.length === 0 ? (
+              {sortedContracts.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center">
@@ -707,7 +794,7 @@ const ContractManagement: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredContracts.map((contract, index) => {
+                sortedContracts.map((contract, index) => {
                   const status = contractStatusCache.get(contract.id) || getContractStatus(contract);
                   return (
                     <tr 
@@ -774,10 +861,10 @@ const ContractManagement: React.FC = () => {
           </table>
         </div>
         
-        {filteredContracts.length > 0 && (
+        {sortedContracts.length > 0 && (
           <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
             <p className="text-sm text-surface-500">
-              共 <span className="text-white font-medium">{filteredContracts.length}</span> 筆資料
+              共 <span className="text-white font-medium">{sortedContracts.length}</span> 筆資料
             </p>
           </div>
         )}
