@@ -261,8 +261,9 @@ function findPaymentForPeriod(
 
 
 // Auto-match back payments to unpaid periods
-// This function tries to match a payment record to unpaid past periods
-// Returns the periods that should be marked as paid if the amount matches
+// This function tries to match a payment record to unpaid PAST periods only
+// A payment should first cover the period it falls within, then any excess covers earlier unpaid periods
+// Returns ONLY the extra periods (beyond the current period) that this payment covers
 function autoMatchBackPayments(
   contract: Contract,
   paymentRecord: PaymentRecord
@@ -276,27 +277,67 @@ function autoMatchBackPayments(
     return [];
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const paymentDate = new Date(paymentRecord.paymentDate);
+  paymentDate.setHours(0, 0, 0, 0);
 
-  // Calculate all rent periods with current payment records
-  const rentPeriods = calculateRentPeriods(contract);
+  // Calculate all rent periods (without the current payment to avoid double counting)
+  const contractWithoutThisPayment = {
+    ...contract,
+    paymentRecords: (contract.paymentRecords || []).filter(pr => pr.id !== paymentRecord.id)
+  };
+  const rentPeriods = calculateRentPeriods(contractWithoutThisPayment);
   
-  // Find unpaid past periods (periods that have ended but are unpaid)
+  // Find which period the payment date falls into
+  const currentPeriod = rentPeriods.find(period => {
+    const periodStart = new Date(period.startDate);
+    periodStart.setHours(0, 0, 0, 0);
+    const periodEnd = new Date(period.endDate);
+    periodEnd.setHours(0, 0, 0, 0);
+    return paymentDate >= periodStart && paymentDate <= periodEnd;
+  });
+
+  // If payment falls within a period, that period is covered first
+  // Calculate remaining amount after covering the current period
+  let remainingAmount = paymentRecord.amount;
+  if (currentPeriod) {
+    remainingAmount -= currentPeriod.amount;
+  }
+
+  // If no excess amount, no back payment matching needed
+  if (remainingAmount < contract.rentAmount - 1) {
+    return [];
+  }
+
+  // Find unpaid past periods BEFORE the current period (or before payment date if no current period)
   const unpaidPastPeriods = rentPeriods.filter(period => {
     const periodEnd = new Date(period.endDate);
     periodEnd.setHours(0, 0, 0, 0);
-    return today > periodEnd && !period.isPaid;
+    
+    // Must be before the payment date
+    if (periodEnd >= paymentDate) {
+      return false;
+    }
+    
+    // Must be unpaid
+    if (period.isPaid) {
+      return false;
+    }
+    
+    // Must be different from current period (if any)
+    if (currentPeriod && period.periodNumber === currentPeriod.periodNumber) {
+      return false;
+    }
+    
+    return true;
   });
 
   if (unpaidPastPeriods.length === 0) {
     return [];
   }
 
-  // Try to match payment amount to unpaid periods
-  // Start from the oldest unpaid period and try to match as many as possible
+  // Try to match remaining amount to unpaid past periods
+  // Start from the oldest unpaid period
   const matchedPeriods: RentPeriod[] = [];
-  let remainingAmount = paymentRecord.amount;
   
   for (const period of unpaidPastPeriods) {
     if (remainingAmount >= period.amount - 1) { // Allow 1 NT$ difference
@@ -307,9 +348,9 @@ function autoMatchBackPayments(
     }
   }
 
-  // Only return matched periods if the remaining amount is small (within 1 NT$)
-  // This means we successfully matched the payment
-  if (Math.abs(remainingAmount) <= 1 && matchedPeriods.length > 0) {
+  // Only return matched periods if we matched at least one period
+  // and the remaining amount is reasonable (within one rent amount tolerance)
+  if (matchedPeriods.length > 0 && remainingAmount < contract.rentAmount) {
     return matchedPeriods;
   }
 

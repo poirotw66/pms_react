@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Routes, Route, Link, useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { Routes, Route, Link, useLocation, Outlet } from 'react-router-dom';
 import { Page, NAV_ITEMS } from './constants.tsx';
 import { useData } from './contexts/DataContext.tsx';
 import HomePage from './components/HomePage.tsx';
@@ -51,11 +51,10 @@ const StorageIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 );
 
 const App: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  
+
   const { storageMode, isLoading, error, refreshData } = useData();
 
   const currentPageMeta = NAV_ITEMS.find(item => {
@@ -82,7 +81,7 @@ const App: React.FC = () => {
 
       {/* Mobile menu overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
@@ -111,16 +110,16 @@ const App: React.FC = () => {
               <p className="text-xs text-surface-400">Property Management</p>
             </div>
           </div>
-          
+
           {/* Mobile close button */}
-          <button 
+          <button
             className="absolute top-6 right-4 p-2 text-surface-400 hover:text-white md:hidden"
             onClick={() => setIsMobileMenuOpen(false)}
           >
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
-        
+
         {/* Navigation */}
         <nav className="flex-grow px-4 py-6 overflow-y-auto">
           <p className="px-3 mb-3 text-xs font-medium text-surface-500 uppercase tracking-wider">導航選單</p>
@@ -136,8 +135,8 @@ const App: React.FC = () => {
                       sidebar-nav-item
                       flex items-center gap-3 px-4 py-3 rounded-xl
                       text-sm font-medium transition-all duration-200
-                      ${isActive 
-                        ? 'active text-primary-400 bg-primary-500/10' 
+                      ${isActive
+                        ? 'active text-primary-400 bg-primary-500/10'
                         : 'text-surface-400 hover:text-white hover:bg-white/5'
                       }
                     `}
@@ -155,11 +154,11 @@ const App: React.FC = () => {
             })}
           </ul>
         </nav>
-        
+
         {/* Sidebar footer */}
         <div className="px-6 py-4 border-t border-white/5">
           {/* Storage mode indicator */}
-          <button 
+          <button
             onClick={() => setIsSettingsOpen(true)}
             className="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-800/50 hover:bg-surface-800 border border-white/5 transition-colors cursor-pointer"
           >
@@ -187,13 +186,13 @@ const App: React.FC = () => {
         <header className="sticky top-0 z-30 glass-card border-b border-white/5">
           <div className="flex items-center justify-between px-6 py-4">
             {/* Mobile menu button */}
-            <button 
+            <button
               className="p-2 -ml-2 text-surface-400 hover:text-white md:hidden"
               onClick={() => setIsMobileMenuOpen(true)}
             >
               <MenuIcon className="w-6 h-6" />
             </button>
-            
+
             {/* Page title */}
             <div className="flex items-center gap-3">
               {currentPageMeta.icon && (
@@ -206,7 +205,7 @@ const App: React.FC = () => {
                 <p className="text-xs text-surface-500 hidden sm:block">管理您的物業資料</p>
               </div>
             </div>
-            
+
             {/* Header actions */}
             <div className="flex items-center gap-3">
               {/* Loading indicator */}
@@ -219,9 +218,9 @@ const App: React.FC = () => {
                   <span className="hidden sm:inline">同步中...</span>
                 </div>
               )}
-              
+
               {/* Refresh button */}
-              <button 
+              <button
                 onClick={handleRefresh}
                 className="icon-btn icon-btn-primary"
                 title="重新載入資料"
@@ -229,9 +228,9 @@ const App: React.FC = () => {
               >
                 <RefreshIcon className={`w-5 h-5 text-surface-400 ${isLoading ? 'animate-spin' : ''}`} />
               </button>
-              
+
               {/* Settings button */}
-              <button 
+              <button
                 onClick={() => setIsSettingsOpen(true)}
                 className="icon-btn icon-btn-primary"
                 title="系統設定"
@@ -240,7 +239,7 @@ const App: React.FC = () => {
               </button>
             </div>
           </div>
-          
+
           {/* Error banner */}
           {error && (
             <div className="px-6 py-2 bg-danger-500/10 border-t border-danger-500/20">
@@ -248,9 +247,9 @@ const App: React.FC = () => {
             </div>
           )}
         </header>
-        
+
         {/* Main content */}
-        <main className="flex-grow animate-fade-in"> 
+        <main className="flex-grow animate-fade-in">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/tenants" element={<TenantManagement />} />
@@ -259,7 +258,7 @@ const App: React.FC = () => {
             <Route path="/repair-requests" element={<RepairRequestManagement />} />
             <Route path="/property-assets" element={<PropertyAssetManagement />} />
             <Route path="/potential-tenants" element={<PotentialTenantManagement />} />
-            <Route path="*" element={<HomePage />} /> 
+            <Route path="*" element={<HomePage />} />
           </Routes>
           <Outlet />
         </main>

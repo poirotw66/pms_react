@@ -128,6 +128,9 @@ function createResponse(data) {
  * 取得或建立工作表
  */
 function getSheet(sheetName) {
+  if (!SPREADSHEET_ID) {
+    throw new Error('試算表 ID 未設定。請在專案屬性中設定 SPREADSHEET_ID，或從試算表內開啟 Apps Script 再部署。');
+  }
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let sheet = ss.getSheetByName(SHEET_NAMES[sheetName]);
   
@@ -240,25 +243,52 @@ function deleteRecord(sheetName, id) {
   }
 }
 
+// Google Sheets 單一儲存格字元上限
+var CELL_CHAR_LIMIT = 50000;
+
 /**
  * 完整同步工作表
  */
 function syncSheet(sheetName, records) {
-  const sheet = getSheet(sheetName);
-  
-  // 清除所有資料（保留標題）
-  const lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    sheet.deleteRows(2, lastRow - 1);
-  }
-  
-  // 確保標題存在
-  sheet.getRange(1, 1).setValue('data');
-  
-  // 寫入新資料
-  if (records && records.length > 0) {
-    const values = records.map(record => [JSON.stringify(record)]);
-    sheet.getRange(2, 1, records.length, 1).setValues(values);
+  try {
+    const sheet = getSheet(sheetName);
+    const lastRow = sheet.getLastRow();
+    
+    // Clear existing data rows (keep header)
+    // Only delete if there are data rows (lastRow > 1)
+    if (lastRow > 1) {
+      const rowsToDelete = lastRow - 1;
+      // Clear content first to prevent data issues
+      sheet.getRange(2, 1, rowsToDelete, 1).clearContent();
+      // Delete rows from bottom to top to avoid index shifting issues
+      sheet.deleteRows(2, rowsToDelete);
+    }
+    
+    // Ensure header exists
+    if (lastRow === 0) {
+      sheet.getRange(1, 1).setValue('data');
+    }
+    
+    // Write new data
+    if (records && records.length > 0) {
+      const values = [];
+      for (var i = 0; i < records.length; i++) {
+        var jsonStr = JSON.stringify(records[i]);
+        if (jsonStr.length > CELL_CHAR_LIMIT) {
+          throw new Error('工作表 ' + sheetName + ' 第 ' + (i + 1) + ' 筆資料過大（' + jsonStr.length + ' 字元，上限 ' + CELL_CHAR_LIMIT + ' 字元），無法寫入試算表。');
+        }
+        values.push([jsonStr]);
+      }
+      // Write all rows at once for better performance
+      var numRows = values.length;
+      sheet.getRange(2, 1, numRows, 1).setValues(values);
+    }
+  } catch (error) {
+    // Re-throw with more context
+    if (error.message.includes('超出邊界') || error.message.includes('out of bounds')) {
+      throw new Error('試算表服務無法正常運作：可能需要重新整理試算表或檢查權限。原始錯誤：' + error.message);
+    }
+    throw error;
   }
 }
 

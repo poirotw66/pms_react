@@ -9,14 +9,14 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 export const Input: React.FC<InputProps> = ({ label, id, error, hint, className = '', ...props }) => {
   const isNumberType = props.type === 'number';
-  
+
   // Prevent wheel event from changing number input value
   const handleWheel = (e: React.WheelEvent<HTMLInputElement>) => {
     if (isNumberType && document.activeElement === e.currentTarget) {
       e.currentTarget.blur();
     }
   };
-  
+
   return (
     <div className="mb-5">
       <label htmlFor={id} className="block text-sm font-medium text-surface-300 mb-2">
@@ -149,21 +149,21 @@ export const Checkbox: React.FC<CheckboxProps> = ({ label, id, className = '', .
                       peer-checked:bg-primary-500 peer-checked:border-primary-500
                       peer-focus:ring-2 peer-focus:ring-primary-500/20
                       transition-all duration-200">
-        <svg 
-          className="w-5 h-5 text-white opacity-0 peer-checked:opacity-100 transition-opacity" 
-          fill="none" 
-          viewBox="0 0 24 24" 
-          strokeWidth={3} 
+        <svg
+          className="w-5 h-5 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={3}
           stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
         </svg>
       </div>
-      <svg 
-        className="absolute top-0 left-0 w-5 h-5 text-white opacity-0 peer-checked:opacity-100 transition-opacity" 
-        fill="none" 
-        viewBox="0 0 24 24" 
-        strokeWidth={3} 
+      <svg
+        className="absolute top-0 left-0 w-5 h-5 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={3}
         stroke="currentColor"
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
@@ -180,15 +180,15 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: React.ReactNode;
 }
 
-export const Button: React.FC<ButtonProps> = ({ 
-  children, 
-  variant = 'primary', 
-  size = 'md', 
+export const Button: React.FC<ButtonProps> = ({
+  children,
+  variant = 'primary',
+  size = 'md',
   loading = false,
   icon,
-  className = '', 
+  className = '',
   disabled,
-  ...props 
+  ...props
 }) => {
   const baseStyle = `
     inline-flex items-center justify-center
@@ -197,7 +197,7 @@ export const Button: React.FC<ButtonProps> = ({
     focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-surface-900
     disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
   `;
-  
+
   const variantStyles: Record<string, string> = {
     primary: 'btn-primary text-white focus:ring-primary-500',
     secondary: 'btn-secondary text-white focus:ring-surface-500',
@@ -237,9 +237,10 @@ interface CardProps {
   children: React.ReactNode;
   className?: string;
   padding?: 'none' | 'sm' | 'md' | 'lg';
+  style?: React.CSSProperties;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', padding = 'md' }) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', padding = 'md', style }) => {
   const paddingStyles: Record<string, string> = {
     none: '',
     sm: 'p-4',
@@ -248,7 +249,7 @@ export const Card: React.FC<CardProps> = ({ children, className = '', padding = 
   };
 
   return (
-    <div className={`glass-card rounded-2xl ${paddingStyles[padding]} ${className}`}>
+    <div className={`glass-card rounded-2xl ${paddingStyles[padding]} ${className}`} style={style}>
       {children}
     </div>
   );

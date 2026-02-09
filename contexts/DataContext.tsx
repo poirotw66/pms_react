@@ -17,15 +17,15 @@ interface DataState {
 interface DataContextType {
   // 資料
   data: DataState;
-  
+
   // 載入狀態
   isLoading: boolean;
   error: string | null;
-  
+
   // 儲存模式
   storageMode: 'localStorage' | 'googleSheets';
   isGoogleSheetsConfigured: boolean;
-  
+
   // 操作函數
   setTenants: (tenants: Tenant[] | ((prev: Tenant[]) => Tenant[])) => Promise<void>;
   setProperties: (properties: Property[] | ((prev: Property[]) => Property[])) => Promise<void>;
@@ -33,7 +33,7 @@ interface DataContextType {
   setRepairRequests: (requests: TenantRepairRequest[] | ((prev: TenantRepairRequest[]) => TenantRepairRequest[])) => Promise<void>;
   setIndividualAssets: (assets: IndividualAsset[] | ((prev: IndividualAsset[]) => IndividualAsset[])) => Promise<void>;
   setPotentialTenants: (tenants: PotentialTenant[] | ((prev: PotentialTenant[]) => PotentialTenant[])) => Promise<void>;
-  
+
   // 配置函數
   configureGoogleSheets: (apiUrl: string) => void;
   disconnectGoogleSheets: () => void;
@@ -64,15 +64,15 @@ function loadFromLocalStorage(): DataState {
   };
 
   const properties = loadItem<Property>(localStorageKeys.properties, []);
-  
+
   // Convert old format assetInventory to new format
   const convertedProperties = properties.map(property => {
     if (property.assetInventory && property.assetInventory.length > 0) {
       // Check if conversion is needed (contains items with separators like ".")
-      const needsConversion = property.assetInventory.some(item => 
+      const needsConversion = property.assetInventory.some(item =>
         typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
       );
-      
+
       if (needsConversion) {
         const converted = convertAssetInventory(property.assetInventory);
         return { ...property, assetInventory: converted };
@@ -109,7 +109,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [data, setData] = useState<DataState>(() => loadFromLocalStorage());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [storageMode, setStorageMode] = useState<'localStorage' | 'googleSheets'>(
+  const [storageMode] = useState<'localStorage' | 'googleSheets'>(
     googleSheets.isGoogleSheetsConfigured() ? 'googleSheets' : 'localStorage'
   );
 
@@ -124,18 +124,18 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const loadFromGoogleSheets = async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const sheetsData = await googleSheets.getAllData<any>();
-      
+
       // Convert old format assetInventory to new format for properties
       const properties = (sheetsData.properties || []).map((property: Property) => {
         if (property.assetInventory && property.assetInventory.length > 0) {
           // Check if conversion is needed (contains items with separators like ".")
-          const needsConversion = property.assetInventory.some((item: string) => 
+          const needsConversion = property.assetInventory.some((item: string) =>
             typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
           );
-          
+
           if (needsConversion) {
             const converted = convertAssetInventory(property.assetInventory);
             return { ...property, assetInventory: converted };
@@ -143,7 +143,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
         return property;
       });
-      
+
       setData({
         tenants: sheetsData.tenants || [],
         properties: properties,
@@ -168,12 +168,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     updater: DataState[K] | ((prev: DataState[K]) => DataState[K])
   ) => {
     setData(prevData => {
-      const newValue = typeof updater === 'function' 
+      const newValue = typeof updater === 'function'
         ? (updater as (prev: DataState[K]) => DataState[K])(prevData[key])
         : updater;
-      
+
       const newData = { ...prevData, [key]: newValue };
-      
+
       // 同步儲存
       if (storageMode === 'localStorage') {
         saveToLocalStorage(localStorageKeys[key], newValue as any[]);
@@ -197,7 +197,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             });
         }, 0);
       }
-      
+
       return newData;
     });
   }, [storageMode]);
@@ -219,19 +219,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   );
 
   const setRepairRequests = useCallback(
-    (requests: TenantRepairRequest[] | ((prev: TenantRepairRequest[]) => TenantRepairRequest[])) => 
+    (requests: TenantRepairRequest[] | ((prev: TenantRepairRequest[]) => TenantRepairRequest[])) =>
       updateData('repairRequests', requests),
     [updateData]
   );
 
   const setIndividualAssets = useCallback(
-    (assets: IndividualAsset[] | ((prev: IndividualAsset[]) => IndividualAsset[])) => 
+    (assets: IndividualAsset[] | ((prev: IndividualAsset[]) => IndividualAsset[])) =>
       updateData('individualAssets', assets),
     [updateData]
   );
 
   const setPotentialTenants = useCallback(
-    (tenants: PotentialTenant[] | ((prev: PotentialTenant[]) => PotentialTenant[])) => 
+    (tenants: PotentialTenant[] | ((prev: PotentialTenant[]) => PotentialTenant[])) =>
       updateData('potentialTenants', tenants),
     [updateData]
   );
@@ -250,7 +250,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const importToGoogleSheets = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       await googleSheets.importFromLocalStorage();
       await loadFromGoogleSheets();

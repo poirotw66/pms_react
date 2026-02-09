@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tenant, Property, Contract, TenantRepairRequest, IndividualAsset, PotentialTenant, PaymentCycle, RepairRequestStatus, EmergencyContact } from './types.ts';
+import { Tenant, Property, Contract, TenantRepairRequest, IndividualAsset, PotentialTenant, PaymentCycle, RepairRequestStatus } from './types.ts';
 
 // Export enums that might be needed by other components if not already.
 export { PaymentCycle, RepairRequestStatus };
@@ -25,11 +25,11 @@ export const HomeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     stroke: "currentColor",
     ...props
   },
-  React.createElement("path", {
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    d: "m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h7.5"
-  })
+    React.createElement("path", {
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      d: "m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h7.5"
+    })
   )
 );
 
@@ -70,7 +70,7 @@ export const UserGroupIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) =>
 );
 
 export const PlusIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-  React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", fill: "none", viewBox: "0 0 24 24", strokeWidth: 1.5, stroke: "currentColor", ...props }, 
+  React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", fill: "none", viewBox: "0 0 24 24", strokeWidth: 1.5, stroke: "currentColor", ...props },
     React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", d: "M12 4.5v15m7.5-7.5h-15" })
   )
 );
@@ -132,7 +132,7 @@ export const NAV_ITEMS = [
 
 // Default data objects
 export const DEFAULT_TENANT: Tenant = {
-  id: '', name: '', idNumber: '', phone: '', 
+  id: '', name: '', idNumber: '', phone: '',
   workDetails: { job: '', company: '', position: '' },
   emergencyContact: { name: '', phone: '', relationship: '' }
 };
