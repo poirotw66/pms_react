@@ -159,13 +159,15 @@ function calculateRentPeriods(contract: Contract): RentPeriod[] {
     let paymentRecord = findPaymentForPeriod(
       contract.paymentRecords || [],
       periodStart,
-      periodEnd
+      periodEnd,
+      usedPayments,
+      contract.rentAmount
     );
 
     // If no payment found within period and this is a past period, check for back payments
-    // IMPORTANT: Only use a payment for back payment if:
-    // 1. The payment amount exceeds one rent period (multi-period payment)
-    // 2. The payment has already been matched to its own period (the period where it was made)
+    // Back payment scenarios:
+    // 1. Multi-period payment: can cover multiple periods, starting from its own period
+    // 2. Single-period payment: if it can't match its own period (already covered), use for back payment
     if (!paymentRecord && today > periodEnd) {
       for (const payment of confirmedPayments) {
         if (usedPayments.has(payment.id)) continue;
@@ -175,35 +177,84 @@ function calculateRentPeriods(contract: Contract): RentPeriod[] {
 
         // If payment date is after period end, it could potentially be a back payment
         if (paymentDate > periodEnd) {
-          // A single-period payment should only match its own period (where the payment date falls)
-          // Only multi-period payments (amount > 1 rent) can be used to back-fill past periods
-
           // Calculate how many periods this payment can cover
           const periodsCovered = Math.floor((payment.amount + 1) / contract.rentAmount);
-
-          // Only use for back payment if it covers more than 1 period (has excess)
-          // AND at least one period-worth has been "spent" on its own period
-          if (periodsCovered <= 1) {
-            // Single period payment - should only match its own period, skip for back payment
-            continue;
-          }
 
           // Count how many periods have been matched to this payment
           const periodsMatchedToThisPayment = periods.filter(p =>
             p.paymentRecord?.id === payment.id
           ).length;
 
-          // For multi-period payments, we need to ensure at least one period is reserved
-          // for the period where the payment was actually made
-          // Only allow back-fill if there's extra capacity beyond 1
-          if (periodsMatchedToThisPayment < periodsCovered - 1) {
-            // Calculate remaining amount after matching previous periods + reserving 1 for own period
-            const remainingAmount = payment.amount - ((periodsMatchedToThisPayment + 1) * contract.rentAmount);
+          if (periodsCovered <= 1) {
+            // Single period payment
+            // Check if this payment's own period (the period containing paymentDate) 
+            // is already covered by another payment
+            // If so, this payment can be used for back payment
 
-            // Check if remaining amount is enough for this period (allow 1 NT$ difference)
-            if (remainingAmount >= contract.rentAmount - 1) {
-              paymentRecord = payment;
-              break;
+            // Find if there's already a period that will use this payment for its own date range
+            // We need to check if the payment date falls within a future period that's NOT yet processed
+            // Since we process periods in order, and paymentDate > periodEnd, we know the payment's
+            // own period hasn't been processed yet. So we can't use it for back payment yet.
+            // UNLESS the current period being processed is before the payment's own period,
+            // AND there's already another payment that will cover the payment's own period.
+
+            // For simplicity: allow single period payment for back payment if there are 
+            // multiple payments on the same date (indicating intentional back payment)
+            const paymentsOnSameDate = confirmedPayments.filter(p => {
+              const pDate = new Date(p.paymentDate);
+              pDate.setHours(0, 0, 0, 0);
+              return pDate.getTime() === paymentDate.getTime();
+            });
+
+            // If there's only one payment on this date, reserve it for its own period
+            if (paymentsOnSameDate.length <= 1) {
+              continue;
+            }
+
+            // Multiple payments on same date - allow using for back payment
+            // But only if it hasn't been matched yet
+            if (periodsMatchedToThisPayment === 0) {
+              // Check if the first payment on this date has already been matched to a period
+              // Sort by ID to get consistent ordering
+              const sortedPayments = [...paymentsOnSameDate].sort((a, b) => a.id.localeCompare(b.id));
+              const firstPayment = sortedPayments[0];
+
+              // If this is not the first payment, or the first payment is already matched, 
+              // this payment can be used for back payment
+              if (payment.id !== firstPayment.id || periods.some(p => p.paymentRecord?.id === firstPayment.id)) {
+                paymentRecord = payment;
+                usedPayments.add(payment.id);
+                break;
+              }
+            }
+          } else {
+            // Multi-period payment
+            // Check if the payment's own period (where paymentDate falls) is already covered
+            // by another payment. If so, all periods can be used for back payment.
+
+            // Find payments that might cover the payment's own period
+            const paymentsOnSameDate = confirmedPayments.filter(p => {
+              if (p.id === payment.id) return false;
+              const pDate = new Date(p.paymentDate);
+              pDate.setHours(0, 0, 0, 0);
+              return pDate.getTime() === paymentDate.getTime();
+            });
+
+            // If there are other payments on the same date, the own period might be covered
+            const ownPeriodCovered = paymentsOnSameDate.length > 0;
+
+            // Calculate how many periods to reserve for own period
+            const periodsToReserve = ownPeriodCovered ? 0 : 1;
+
+            if (periodsMatchedToThisPayment < periodsCovered - periodsToReserve) {
+              // Calculate remaining amount after matching previous periods (and reserving for own period if needed)
+              const remainingAmount = payment.amount - ((periodsMatchedToThisPayment + periodsToReserve) * contract.rentAmount);
+
+              // Check if remaining amount is enough for this period (allow 1 NT$ difference)
+              if (remainingAmount >= contract.rentAmount - 1) {
+                paymentRecord = payment;
+                break;
+              }
             }
           }
         }
@@ -257,17 +308,44 @@ function calculateRentPeriods(contract: Contract): RentPeriod[] {
 }
 
 // Find payment record that matches a rent period
+// usedPayments: Set of payment IDs that have been fully used (single-period payments)
 function findPaymentForPeriod(
   paymentRecords: PaymentRecord[],
   periodStart: Date,
-  periodEnd: Date
+  periodEnd: Date,
+  usedPayments: Set<string>,
+  rentAmount: number
 ): PaymentRecord | undefined {
   return paymentRecords.find(record => {
     if (!record.paymentDate || !record.isConfirmed) {
       return false;
     }
+
+    // Skip if this payment has already been fully used
+    if (usedPayments.has(record.id)) {
+      return false;
+    }
+
     const paymentDate = new Date(record.paymentDate);
-    return paymentDate >= periodStart && paymentDate <= periodEnd;
+    paymentDate.setHours(0, 0, 0, 0);
+    const pStart = new Date(periodStart);
+    pStart.setHours(0, 0, 0, 0);
+    const pEnd = new Date(periodEnd);
+    pEnd.setHours(0, 0, 0, 0);
+
+    if (paymentDate >= pStart && paymentDate <= pEnd) {
+      // Check if this is a single-period payment or multi-period payment
+      const periodsCovered = Math.floor((record.amount + 1) / rentAmount);
+
+      // For single-period payments, mark as used immediately
+      if (periodsCovered <= 1) {
+        usedPayments.add(record.id);
+      }
+
+      return true;
+    }
+
+    return false;
   });
 }
 
@@ -292,15 +370,15 @@ function autoMatchBackPayments(
   const paymentDate = new Date(paymentRecord.paymentDate);
   paymentDate.setHours(0, 0, 0, 0);
 
-  // Calculate all rent periods (without the current payment to avoid double counting)
+  // Calculate rent periods WITHOUT this payment to find unpaid periods
   const contractWithoutThisPayment = {
     ...contract,
     paymentRecords: (contract.paymentRecords || []).filter(pr => pr.id !== paymentRecord.id)
   };
-  const rentPeriods = calculateRentPeriods(contractWithoutThisPayment);
+  const rentPeriodsWithoutThisPayment = calculateRentPeriods(contractWithoutThisPayment);
 
   // Find which period the payment date falls into
-  const currentPeriod = rentPeriods.find(period => {
+  const currentPeriod = rentPeriodsWithoutThisPayment.find(period => {
     const periodStart = new Date(period.startDate);
     periodStart.setHours(0, 0, 0, 0);
     const periodEnd = new Date(period.endDate);
@@ -308,10 +386,15 @@ function autoMatchBackPayments(
     return paymentDate >= periodStart && paymentDate <= periodEnd;
   });
 
-  // If payment falls within a period, that period is covered first
-  // Calculate remaining amount after covering the current period
+  // Check if the current period is already covered by another payment
+  // (not this payment, since we calculated with this payment excluded)
+  const currentPeriodAlreadyCovered = currentPeriod ?
+    rentPeriodsWithoutThisPayment.find(p => p.periodNumber === currentPeriod.periodNumber)?.isPaid : false;
+
+  // If payment falls within a period AND that period is NOT already covered,
+  // then this payment covers the current period first
   let remainingAmount = paymentRecord.amount;
-  if (currentPeriod) {
+  if (currentPeriod && !currentPeriodAlreadyCovered) {
     remainingAmount -= currentPeriod.amount;
   }
 
@@ -320,8 +403,9 @@ function autoMatchBackPayments(
     return [];
   }
 
-  // Find unpaid past periods BEFORE the current period (or before payment date if no current period)
-  const unpaidPastPeriods = rentPeriods.filter(period => {
+  // Find unpaid past periods BEFORE the payment date
+  // Use rentPeriodsWithoutThisPayment to find periods that need covering
+  const unpaidPastPeriods = rentPeriodsWithoutThisPayment.filter(period => {
     const periodEnd = new Date(period.endDate);
     periodEnd.setHours(0, 0, 0, 0);
 
@@ -330,13 +414,8 @@ function autoMatchBackPayments(
       return false;
     }
 
-    // Must be unpaid
+    // Must be unpaid (before this payment was added)
     if (period.isPaid) {
-      return false;
-    }
-
-    // Must be different from current period (if any)
-    if (currentPeriod && period.periodNumber === currentPeriod.periodNumber) {
       return false;
     }
 
@@ -700,14 +779,17 @@ const ContractManagement: React.FC = () => {
       const matchedPeriods = autoMatchBackPayments(updatedContract, newPayment);
 
       if (matchedPeriods.length > 0) {
-        // Show confirmation message
-        const periodInfo = matchedPeriods.map(p => `第${p.periodNumber}期`).join('、');
+        // Show confirmation message with details for each period
+        const periodDetails = matchedPeriods
+          .sort((a, b) => a.periodNumber - b.periodNumber)
+          .map(p => `第${p.periodNumber}期（金額：$${p.amount.toLocaleString()}）`)
+          .join('\n');
         const totalAmount = matchedPeriods.reduce((sum, p) => sum + p.amount, 0);
 
         if (matchedPeriods.length === 1) {
-          alert(`已自動對應補繳款項：${periodInfo}（金額：$${totalAmount.toLocaleString()}）`);
+          alert(`已自動對應補繳款項：\n${periodDetails}`);
         } else {
-          alert(`已自動對應補繳款項：${periodInfo}（共${matchedPeriods.length}期，總金額：$${totalAmount.toLocaleString()}）`);
+          alert(`已自動對應補繳款項：\n${periodDetails}\n\n共${matchedPeriods.length}期，總金額：$${totalAmount.toLocaleString()}`);
         }
       }
     }
