@@ -19,9 +19,9 @@
   
   ![物件與資產管理](images/2_item.png)
 
-- 年繳合約設定：預期收款日期與金額、年繳優惠
+- 承租人管理
   
-  ![年繳合約設定](images/1_custom.png)
+  ![承租人管理](images/1_custom.png)
 
 - 系統設定：本機儲存 / Google Sheets 雲端同步切換
   
