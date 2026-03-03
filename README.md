@@ -1,28 +1,59 @@
 
 # 綜合物業管理系統
 
-一個全面的物業管理應用程式，旨在協助您高效管理名下或代管的各類物業、處理與承租人相關的事務、追蹤合約狀態、管理維修請求以及記錄物業內的資產。系統的目標是簡化日常管理工作流程、提高資訊透明度、並確保各項事務能被妥善記錄與追蹤。
+一個全面的物業管理應用程式，協助您高效管理名下或代管的各類物業、處理與承租人相關的事務、追蹤合約狀態、管理維修請求以及記錄物業內的資產。系統的目標是簡化日常管理工作流程、提高資訊透明度，並確保各項事務都能被妥善記錄與追蹤。
+
+## 系統截圖
+
+> 以下為實際介面示意，路徑位於 `images/` 資料夾，可直接用於簡報或文件中。
+
+- 首頁儀表板與導覽
+  
+  ![首頁儀表板](images/0_homepage.png)
+
+- 合約管理與每期租金狀態（含「未到時間 / 待收款 / 已繳交 / 款項異常」）
+  
+  ![合約管理與每期租金狀態](images/3_contract.png)
+
+- 物件與資產管理（設備 / 家具 / 生活機能勾選）
+  
+  ![物件與資產管理](images/2_item.png)
+
+- 年繳合約設定：預期收款日期與金額、年繳優惠
+  
+  ![年繳合約設定](images/1_custom.png)
+
+- 系統設定：本機儲存 / Google Sheets 雲端同步切換
+  
+  ![系統設定與雲端同步](images/4_setting.png)
 
 ## 主要功能
 
-本系統包含以下主要管理模組：
+本系統目前包含以下主要管理模組與能力：
 
-*   **首頁 (Home):** 提供一個儀表板視圖，顯示重要資訊摘要，例如即將到期的合約。
-*   **承租人管理 (Tenant Management):** 管理所有承租人的詳細資訊。
-*   **物件管理 (Property Management):** 詳細記錄和管理每一處物業的具體資訊，包括資產明細和維修記錄。
-*   **合約管理 (Contract Management):** 管理所有租賃合約的生命週期，包括租金收款記錄和提醒。
-*   **承租人報修管理 (Tenant Repair Request Management):** 處理承租人提出的修繕請求。
-*   **物件資產管理 (Property Asset Management):** 追蹤和管理構成「物件資產明細」中那些具有一定價值或需要獨立管理的資產。
-*   **潛在客戶管理 (Potential Tenant Management):** 記錄和追蹤有意向承租的潛在客戶資訊。
+*   **首頁 (Home):** 儀表板視圖，顯示即將到期合約、待收款提醒等重點資訊。
+*   **承租人管理 (Tenant Management):** 管理所有承租人詳細資料與緊急聯絡人。
+*   **物件管理 (Property Management):** 記錄每一處物業資訊，包含坪數、資產明細（設備 / 家具 / 生活機能勾選）與維修紀錄。
+*   **合約管理 (Contract Management):**
+    * 支援 **月繳 / 季繳 / 半年繳 / 年繳**。
+    * 自動計算每期租金期間與應收金額。
+    * 每期狀態：**未到時間 / 待收款 / 已繳交 / 款項異常 / 已到期**。
+    * 年繳可設定多筆「預期收款日期 + 金額」，並檢查實際收款是否全部到位。
+    * 支援補繳、多期合併付款與金額比對。
+*   **承租人報修管理 (Tenant Repair Request Management):** 處理承租人提出的修繕請求與結案紀錄。
+*   **物件資產管理 (Property Asset Management):** 追蹤物件內單一高價資產（如家電）的購買日期、價格、保固與廠商資訊。
+*   **潛在客戶管理 (Potential Tenant Management):** 記錄有意承租的潛在客戶、需求與追蹤狀態。
 
 ## 技術棧
 
-*   **前端框架:** React 19
+*   **前端框架:** React 18+
 *   **語言:** TypeScript
-*   **樣式:** Tailwind CSS (via CDN)
-*   **開發與建置工具 (建議):** Vite
+*   **樣式:** Tailwind CSS（目前透過 CDN 載入，開發環境會看到 `cdn.tailwindcss.com should not be used in production` 的提示，未來可改為 PostCSS/CLI 正式整合）
+*   **開發與建置工具:** Vite
 *   **模組系統:** ES Modules
-*   **資料儲存:** 瀏覽器 LocalStorage
+*   **資料儲存:**
+    * 預設：瀏覽器 **LocalStorage**（單機即可使用，不需要後端）
+    * 選用：**Google Sheets** 作為雲端資料庫，透過 Google Apps Script Web App 提供 API，同步 tenants / properties / contracts 等資料
 
 ## 系統需求
 
@@ -72,12 +103,19 @@
 5.  **在瀏覽器中開啟:**
     將終端機中顯示的本地網址複製到您的瀏覽器中開啟。您應該能看到應用程式介面並開始使用。
 
-## 資料儲存
+## 資料儲存與同步模式
 
-本應用程式目前使用瀏覽器的 **LocalStorage** 來儲存所有輸入的資料。這意味著：
-*   資料僅儲存在您目前使用的電腦和瀏覽器中。
-*   清除瀏覽器快取或網站資料可能會導致已儲存的資料遺失。
-*   資料不會在不同裝置或瀏覽器之間同步。
+本應用目前提供兩種儲存模式，可在系統設定畫面中切換：
+
+- **本機模式（LocalStorage）**
+  - 資料僅儲存在目前使用的電腦與瀏覽器。
+  - 清除瀏覽器網站資料可能會導致已儲存的資料遺失。
+  - 優點是不需任何雲端設定，離線也能使用。
+
+- **雲端模式（Google Sheets）**
+  - 透過 Google Apps Script Web App 將資料同步到指定試算表。
+  - 支援 `tenants / properties / contracts / repairRequests / individualAssets / potentialTenants` 等工作表。
+  - 若連線或權限有問題，系統會在主控台與 UI 顯示錯誤訊息，並保留本機資料，不會直接遺失。
 
 ## 檔案結構概覽
 
@@ -94,12 +132,18 @@
 │   └── TenantManagement.tsx
 ├── hooks/                      # 自定義 React Hooks
 │   └── useLocalStorage.ts      # LocalStorage 持久化 Hook
+├── contexts/                   # 全域資料 Context
+│   └── DataContext.tsx         # 管理 tenants / properties / contracts 等資料來源（LocalStorage / Google Sheets）
 ├── App.tsx                     # 主要應用程式元件，處理頁面導航和佈局
 ├── constants.tsx               # 應用程式常數 (頁面定義, 導航項目, SVG 圖示, 預設資料物件)
 ├── index.html                  # HTML 入口檔案，引入 Tailwind CSS 和 React
 ├── index.tsx                   # React 應用程式的進入點
 ├── metadata.json               # 應用程式元數據 (名稱, 描述)
 ├── types.ts                    # TypeScript 型別定義
+├── services/
+│   └── googleSheets.ts         # 與 Google Apps Script Web App 溝通的 API 包裝
+├── google-apps-script/         # 後端 GAS 程式碼與設定說明 (Code.gs, SETUP.md)
+├── images/                     # README 使用的系統截圖
 └── README.md                   # 本說明檔案
 ```
 
