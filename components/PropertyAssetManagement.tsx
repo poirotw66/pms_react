@@ -5,6 +5,7 @@ import { useIndividualAssets, useProperties } from '../contexts/DataContext.tsx'
 import { Modal } from './common/Modal.tsx';
 import { Input, Button, Select, FormGroup, Card } from './common/FormControls.tsx';
 import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_INDIVIDUAL_ASSET, ArchiveBoxIcon } from '../constants.tsx';
+import { getWarrantyStatus, isDateString } from '../lib/warranty.ts';
 
 const PropertyAssetManagement: React.FC = () => {
   const [assets, setAssets] = useIndividualAssets();
@@ -89,20 +90,9 @@ const PropertyAssetManagement: React.FC = () => {
     }
   };
 
-  // Check warranty status
-  const getWarrantyStatus = (warrantyPeriod: string) => {
-    if (!warrantyPeriod) return null;
-    // Try to parse as date
-    const warrantyDate = new Date(warrantyPeriod);
-    if (!isNaN(warrantyDate.getTime())) {
-      const today = new Date();
-      if (warrantyDate < today) return 'expired';
-      const daysLeft = Math.ceil((warrantyDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysLeft <= 30) return 'expiring';
-      return 'active';
-    }
-    return 'active'; // If not a date, assume active
-  };
+  // 保固狀態改由 lib/warranty.ts 判定：
+  // 舊的寫法只要不是日期就一律回傳「保固中」，
+  // 因此「3年」這類期間描述即使早已過保也會顯示保固有效。
 
   // Filter assets
   const filteredAssets = assets.filter(asset => {
@@ -176,7 +166,7 @@ const PropertyAssetManagement: React.FC = () => {
                 </tr>
               ) : (
                 filteredAssets.map((asset, index) => {
-                  const warrantyStatus = getWarrantyStatus(asset.warrantyPeriod);
+                  const warrantyStatus = getWarrantyStatus(asset);
                   return (
                     <tr 
                       key={asset.id} 
@@ -207,7 +197,10 @@ const PropertyAssetManagement: React.FC = () => {
                         {warrantyStatus === 'expired' && <span className="badge badge-danger">已過期</span>}
                         {warrantyStatus === 'expiring' && <span className="badge badge-warning">即將到期</span>}
                         {warrantyStatus === 'active' && <span className="badge badge-success">保固中</span>}
-                        {!warrantyStatus && <span className="text-surface-500 text-sm">-</span>}
+                        {warrantyStatus === 'unknown' && (
+                          <span className="badge badge-info" title={`無法判讀：${asset.warrantyPeriod}`}>待確認</span>
+                        )}
+                        {warrantyStatus === 'none' && <span className="text-surface-500 text-sm">-</span>}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-end gap-2">
@@ -295,14 +288,23 @@ const PropertyAssetManagement: React.FC = () => {
             </FormGroup>
 
             <FormGroup title="保固資訊">
-              <Input 
-                label="保固期間" 
-                name="warrantyPeriod" 
-                value={currentAsset.warrantyPeriod} 
-                onChange={handleInputChange} 
-                placeholder="例：2025-12-31 或 3年"
-                hint="可輸入日期或期間描述"
+              <Input
+                label="保固到期日"
+                name="warrantyPeriod"
+                type="date"
+                value={isDateString(currentAsset.warrantyPeriod || '') ? currentAsset.warrantyPeriod : ''}
+                onChange={handleInputChange}
+                hint="留空表示未登記保固"
               />
+              {currentAsset.warrantyPeriod && !isDateString(currentAsset.warrantyPeriod) && (
+                <div className="-mt-2 mb-5 p-3 rounded-lg bg-warning-500/10 border border-warning-500/20">
+                  <p className="text-xs text-warning-400">
+                    原本填寫的是「{currentAsset.warrantyPeriod}」，無法換算成到期日
+                    {!currentAsset.purchaseDate && '（缺少購買日期）'}。
+                  </p>
+                  <p className="text-xs text-surface-300 mt-1">請直接選擇到期日，儲存後即可正確判斷保固狀態。</p>
+                </div>
+              )}
             </FormGroup>
             
             <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
@@ -347,7 +349,7 @@ const PropertyAssetManagement: React.FC = () => {
                 <p className="text-sm font-medium text-white">{currentAsset.vendorNamePhone || '-'}</p>
               </div>
               <div className="p-4 rounded-xl bg-surface-800/50 border border-white/5">
-                <p className="text-xs text-surface-500 mb-1">保固期間</p>
+                <p className="text-xs text-surface-500 mb-1">保固到期日</p>
                 <p className="text-sm font-medium text-white">{currentAsset.warrantyPeriod || '-'}</p>
               </div>
             </div>

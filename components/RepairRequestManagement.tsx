@@ -5,6 +5,7 @@ import { useRepairRequests, useTenants, useProperties } from '../contexts/DataCo
 import { Modal } from './common/Modal.tsx';
 import { Input, Button, Select, TextArea, FormGroup, Card } from './common/FormControls.tsx';
 import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_REPAIR_REQUEST, WrenchScrewdriverIcon } from '../constants.tsx';
+import { hasResolutionContent } from '../lib/repairRequests.ts';
 
 const RepairRequestManagement: React.FC = () => {
   const [repairRequests, setRepairRequests] = useRepairRequests();
@@ -103,7 +104,9 @@ const RepairRequestManagement: React.FC = () => {
 
     const requestToSave: TenantRepairRequest = {
       ...currentRequest,
-      resolutionDetails: currentRequest.status === RepairRequestStatus.COMPLETED ? finalResolutionDetails : undefined,
+      // 依「是否有內容」決定保留，而非依狀態。
+      // 狀態改回處理中時仍保留既有結案資料，重新結案時不必重打一次。
+      resolutionDetails: hasResolutionContent(finalResolutionDetails) ? finalResolutionDetails : undefined,
     };
 
     if (editingId) {
@@ -277,6 +280,15 @@ const RepairRequestManagement: React.FC = () => {
               <TextArea label="報修內容" name="description" value={currentRequest.description} onChange={handleInputChange} placeholder="詳細描述損壞情況、地點等" required />
               <Select label="狀態" name="status" value={currentRequest.status} onChange={handleInputChange} options={statusOptions} required />
             </FormGroup>
+
+            {currentRequest.status !== RepairRequestStatus.COMPLETED && hasResolutionContent(currentRequest.resolutionDetails) && (
+              <div className="p-4 rounded-xl bg-info-500/10 border border-info-500/20">
+                <p className="text-sm text-info-400">先前填寫的結案資訊已保留</p>
+                <p className="text-xs text-surface-300 mt-1">
+                  狀態改回「已結案」即可看到並繼續編輯，不需要重新輸入。
+                </p>
+              </div>
+            )}
 
             {currentRequest.status === RepairRequestStatus.COMPLETED && (
               <FormGroup title="結案資訊">

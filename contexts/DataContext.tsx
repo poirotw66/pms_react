@@ -11,6 +11,7 @@ import {
   emptyBackupData,
 } from '../services/backup.ts';
 import { convertAssetInventory } from '../constants.tsx';
+import { normalizeWarrantyPeriod } from '../lib/warranty.ts';
 
 // 資料狀態類型
 type DataState = BackupData;
@@ -81,6 +82,19 @@ function normalizeProperties(properties: Property[]): Property[] {
 }
 
 /**
+ * 保固欄位過去是自由文字（可能是日期，也可能是「3年」這類期間描述）。
+ * 欄位改為日期後，把能換算的舊值一併換算成到期日；
+ * 換算不出來的（例如缺購買日期、或填了無法辨識的文字）原樣保留，
+ * 由畫面提示使用者補填，不丟棄任何既有資料。
+ */
+function normalizeIndividualAssets(assets: IndividualAsset[]): IndividualAsset[] {
+  return (assets || []).map(asset => {
+    const normalized = normalizeWarrantyPeriod(asset);
+    return normalized === asset.warrantyPeriod ? asset : { ...asset, warrantyPeriod: normalized };
+  });
+}
+
+/**
  * 寫入 localStorage，回傳錯誤訊息（成功時為 null）。
  * 儲存空間滿了或瀏覽器停用儲存時不能讓例外往上炸掉整個畫面。
  */
@@ -121,12 +135,19 @@ function loadFromLocalStorage(): DataState {
     writeLocal('properties', convertedProperties);
   }
 
+  const assets = loadItem<IndividualAsset>('individualAssets');
+  const convertedAssets = normalizeIndividualAssets(assets);
+
+  if (convertedAssets.length > 0 && JSON.stringify(assets) !== JSON.stringify(convertedAssets)) {
+    writeLocal('individualAssets', convertedAssets);
+  }
+
   return {
     tenants: loadItem<Tenant>('tenants'),
     properties: convertedProperties,
     contracts: loadItem<Contract>('contracts'),
     repairRequests: loadItem<TenantRepairRequest>('repairRequests'),
-    individualAssets: loadItem<IndividualAsset>('individualAssets'),
+    individualAssets: convertedAssets,
     potentialTenants: loadItem<PotentialTenant>('potentialTenants'),
   };
 }
@@ -175,7 +196,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         properties: normalizeProperties(sheetsData.properties || []),
         contracts: sheetsData.contracts || [],
         repairRequests: sheetsData.repairRequests || [],
-        individualAssets: sheetsData.individualAssets || [],
+        individualAssets: normalizeIndividualAssets(sheetsData.individualAssets || []),
         potentialTenants: sheetsData.potentialTenants || [],
       };
 
@@ -420,6 +441,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ...emptyBackupData(),
       ...backup,
       properties: normalizeProperties(backup.properties || []),
+      individualAssets: normalizeIndividualAssets(backup.individualAssets || []),
     };
 
     applyData(nextState);
