@@ -1,32 +1,29 @@
-console.log('index.tsx evaluating as module');
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import { DataProvider } from './contexts/DataContext.tsx';
+import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-// Get the base path for GitHub Pages deployment
-const getBasename = () => {
-  // In production (GitHub Pages), use the repository name as basename
-  // In development, use empty string
-  if (import.meta.env.PROD) {
-    return '/pms_react';
-  }
-  return '';
-};
+// 由 Vite 的 base 推導 router basename：
+// production 為 '/pms_react/'、development 為 '/'，去掉結尾斜線即為 basename。
+// 這樣就只需要在 vite.config.ts 設定一次 base。
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <BrowserRouter basename={getBasename()}>
-      <DataProvider>
-        <App />
-      </DataProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter basename={basename}>
+        <DataProvider>
+          <App />
+        </DataProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>
 );

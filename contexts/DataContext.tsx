@@ -1,17 +1,19 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { Tenant, Property, Contract, TenantRepairRequest, IndividualAsset, PotentialTenant } from '../types.ts';
 import * as googleSheets from '../services/googleSheets.ts';
+import {
+  BackupData,
+  DataKey,
+  DATA_KEYS,
+  DATA_LABELS,
+  STORAGE_KEYS,
+  downloadBackup,
+  emptyBackupData,
+} from '../services/backup.ts';
 import { convertAssetInventory } from '../constants.tsx';
 
 // 資料狀態類型
-interface DataState {
-  tenants: Tenant[];
-  properties: Property[];
-  contracts: Contract[];
-  repairRequests: TenantRepairRequest[];
-  individualAssets: IndividualAsset[];
-  potentialTenants: PotentialTenant[];
-}
+type DataState = BackupData;
 
 // Context 類型
 interface DataContextType {
@@ -26,6 +28,9 @@ interface DataContextType {
   storageMode: 'localStorage' | 'googleSheets';
   isGoogleSheetsConfigured: boolean;
 
+  // 尚未成功同步到 Google Sheets 的資料表（僅雲端模式會有值）
+  pendingSyncKeys: DataKey[];
+
   // 操作函數
   setTenants: (tenants: Tenant[] | ((prev: Tenant[]) => Tenant[])) => Promise<void>;
   setProperties: (properties: Property[] | ((prev: Property[]) => Property[])) => Promise<void>;
@@ -39,37 +44,27 @@ interface DataContextType {
   disconnectGoogleSheets: () => void;
   importToGoogleSheets: () => Promise<void>;
   refreshData: () => Promise<void>;
+  retrySync: () => Promise<void>;
+
+  // 備份 / 還原
+  exportBackup: () => void;
+  restoreBackup: (backup: BackupData) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-// localStorage 操作
-const localStorageKeys = {
-  tenants: 'tenants',
-  properties: 'properties',
-  contracts: 'contracts',
-  repairRequests: 'repairRequests',
-  individualAssets: 'individualAssets',
-  potentialTenants: 'potentialTenants',
-};
+// localStorage key 沿用 services/backup.ts 的定義，確保與舊版資料相容
+const localStorageKeys = STORAGE_KEYS;
 
-function loadFromLocalStorage(): DataState {
-  const loadItem = <T,>(key: string, defaultValue: T[]): T[] => {
-    try {
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : defaultValue;
-    } catch {
-      return defaultValue;
-    }
-  };
-
-  const properties = loadItem<Property>(localStorageKeys.properties, []);
-
-  // Convert old format assetInventory to new format
-  const convertedProperties = properties.map(property => {
+/**
+ * 將舊格式的 assetInventory（以 "."、","、"、" 分隔的字串）轉成新的陣列格式。
+ * 舊資料一律走這個函式，確保升級後仍讀得到。
+ */
+function normalizeProperties(properties: Property[]): Property[] {
+  return (properties || []).map(property => {
     if (property.assetInventory && property.assetInventory.length > 0) {
       // Check if conversion is needed (contains items with separators like ".")
-      const needsConversion = property.assetInventory.some(item =>
+      const needsConversion = property.assetInventory.some((item: string) =>
         typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
       );
 
@@ -80,28 +75,57 @@ function loadFromLocalStorage(): DataState {
     }
     return property;
   });
+}
+
+/**
+ * 寫入 localStorage，回傳錯誤訊息（成功時為 null）。
+ * 儲存空間滿了或瀏覽器停用儲存時不能讓例外往上炸掉整個畫面。
+ */
+function writeLocal(key: DataKey, value: unknown[]): string | null {
+  try {
+    localStorage.setItem(localStorageKeys[key], JSON.stringify(value));
+    return null;
+  } catch (err: any) {
+    console.error(`寫入本機儲存失敗 (${key}):`, err);
+    const isQuotaError =
+      err?.name === 'QuotaExceededError' ||
+      err?.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      err?.code === 22;
+
+    return isQuotaError
+      ? `本機儲存空間已滿，「${DATA_LABELS[key]}」的變更未能存檔。請先到「系統設定」匯出備份，再清理不需要的資料。`
+      : `本機儲存寫入失敗（${DATA_LABELS[key]}）：${err?.message || '未知錯誤'}`;
+  }
+}
+
+function loadFromLocalStorage(): DataState {
+  const loadItem = <T,>(key: DataKey): T[] => {
+    try {
+      const item = localStorage.getItem(localStorageKeys[key]);
+      if (!item) return [];
+      const parsed = JSON.parse(item);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const properties = loadItem<Property>('properties');
+  const convertedProperties = normalizeProperties(properties);
 
   // Save converted properties back if conversion happened
   if (convertedProperties.length > 0 && JSON.stringify(properties) !== JSON.stringify(convertedProperties)) {
-    try {
-      localStorage.setItem(localStorageKeys.properties, JSON.stringify(convertedProperties));
-    } catch (err) {
-      console.warn('Failed to save converted properties:', err);
-    }
+    writeLocal('properties', convertedProperties);
   }
 
   return {
-    tenants: loadItem<Tenant>(localStorageKeys.tenants, []),
+    tenants: loadItem<Tenant>('tenants'),
     properties: convertedProperties,
-    contracts: loadItem<Contract>(localStorageKeys.contracts, []),
-    repairRequests: loadItem<TenantRepairRequest>(localStorageKeys.repairRequests, []),
-    individualAssets: loadItem<IndividualAsset>(localStorageKeys.individualAssets, []),
-    potentialTenants: loadItem<PotentialTenant>(localStorageKeys.potentialTenants, []),
+    contracts: loadItem<Contract>('contracts'),
+    repairRequests: loadItem<TenantRepairRequest>('repairRequests'),
+    individualAssets: loadItem<IndividualAsset>('individualAssets'),
+    potentialTenants: loadItem<PotentialTenant>('potentialTenants'),
   };
-}
-
-function saveToLocalStorage(key: string, data: any[]): void {
-  localStorage.setItem(key, JSON.stringify(data));
 }
 
 // Provider 元件
@@ -109,98 +133,114 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [data, setData] = useState<DataState>(() => loadFromLocalStorage());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingSyncKeys, setPendingSyncKeys] = useState<DataKey[]>([]);
   const [storageMode] = useState<'localStorage' | 'googleSheets'>(
     googleSheets.isGoogleSheetsConfigured() ? 'googleSheets' : 'localStorage'
   );
 
-  // 初始載入
-  useEffect(() => {
-    if (storageMode === 'googleSheets') {
-      loadFromGoogleSheets();
-    }
-  }, [storageMode]);
+  // dataRef 與 state 同步更新，讓 updateData 能在同一個 tick 內連續呼叫時
+  // 仍讀得到最新資料，同時避免把副作用寫在 setState 的 updater 裡。
+  const dataRef = useRef<DataState>(data);
+  const pendingRef = useRef<Set<DataKey>>(new Set());
+
+  const applyData = useCallback((next: DataState) => {
+    dataRef.current = next;
+    setData(next);
+  }, []);
+
+  const commitPending = useCallback(() => {
+    setPendingSyncKeys(Array.from(pendingRef.current));
+  }, []);
 
   // 從 Google Sheets 載入資料
-  const loadFromGoogleSheets = async () => {
+  const loadFromGoogleSheets = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       const sheetsData = await googleSheets.getAllData<any>();
 
-      // Convert old format assetInventory to new format for properties
-      const properties = (sheetsData.properties || []).map((property: Property) => {
-        if (property.assetInventory && property.assetInventory.length > 0) {
-          // Check if conversion is needed (contains items with separators like ".")
-          const needsConversion = property.assetInventory.some((item: string) =>
-            typeof item === 'string' && (item.includes('.') || item.includes(',') || item.includes('、'))
-          );
-
-          if (needsConversion) {
-            const converted = convertAssetInventory(property.assetInventory);
-            return { ...property, assetInventory: converted };
-          }
-        }
-        return property;
-      });
-
-      setData({
+      const nextState: DataState = {
         tenants: sheetsData.tenants || [],
-        properties: properties,
+        properties: normalizeProperties(sheetsData.properties || []),
         contracts: sheetsData.contracts || [],
         repairRequests: sheetsData.repairRequests || [],
         individualAssets: sheetsData.individualAssets || [],
         potentialTenants: sheetsData.potentialTenants || [],
-      });
+      };
+
+      applyData(nextState);
+
+      // 更新本機快取：雲端載入失敗或離線時，這份副本就是後備資料
+      DATA_KEYS.forEach(key => writeLocal(key, nextState[key]));
+
+      // 雲端資料已成為最新狀態，先前未同步的標記不再適用
+      pendingRef.current.clear();
+      commitPending();
     } catch (err: any) {
       setError(err.message || '載入資料失敗');
       console.error('載入 Google Sheets 資料失敗:', err);
-      // 如果失敗，回退到 localStorage
-      setData(loadFromLocalStorage());
+      // 如果失敗，回退到 localStorage 的離線副本
+      applyData(loadFromLocalStorage());
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [applyData, commitPending]);
+
+  // 初始載入
+  useEffect(() => {
+    if (storageMode === 'googleSheets') {
+      loadFromGoogleSheets();
+    }
+  }, [storageMode, loadFromGoogleSheets]);
+
+  /**
+   * 同步單一資料表到 Google Sheets。
+   * 這個函式不會 reject —— 失敗時改為標記待同步並顯示訊息，
+   * 因為資料在此之前已經寫進 localStorage，不會遺失。
+   */
+  const syncKeyToSheets = useCallback(async (key: DataKey, records: any[]) => {
+    try {
+      await googleSheets.syncSheet(key as googleSheets.SheetName, records);
+      pendingRef.current.delete(key);
+      commitPending();
+      if (pendingRef.current.size === 0) {
+        setError(null);
+      }
+    } catch (err: any) {
+      console.error(`同步 ${key} 到 Google Sheets 失敗:`, err);
+      pendingRef.current.add(key);
+      commitPending();
+      setError(
+        `「${DATA_LABELS[key]}」尚未同步到 Google Sheets，變更已暫存在本機瀏覽器。` +
+        `請檢查網路或設定後按「重試同步」。原因：${err?.message || '未知錯誤'}`
+      );
+    }
+  }, [commitPending]);
 
   // 通用的資料更新函數
-  const updateData = useCallback(async <K extends keyof DataState>(
+  const updateData = useCallback(async <K extends DataKey>(
     key: K,
     updater: DataState[K] | ((prev: DataState[K]) => DataState[K])
   ) => {
-    setData(prevData => {
-      const newValue = typeof updater === 'function'
-        ? (updater as (prev: DataState[K]) => DataState[K])(prevData[key])
-        : updater;
+    const prevValue = dataRef.current[key];
+    const newValue = typeof updater === 'function'
+      ? (updater as (prev: DataState[K]) => DataState[K])(prevValue)
+      : updater;
 
-      const newData = { ...prevData, [key]: newValue };
+    applyData({ ...dataRef.current, [key]: newValue });
 
-      // 同步儲存
-      if (storageMode === 'localStorage') {
-        saveToLocalStorage(localStorageKeys[key], newValue as any[]);
-      } else {
-        // Google Sheets 非同步儲存（使用 setTimeout 避免阻塞 UI）
-        setTimeout(() => {
-          googleSheets.syncSheet(key as googleSheets.SheetName, newValue as any[])
-            .catch(err => {
-              console.error(`同步 ${key} 到 Google Sheets 失敗:`, err);
-              // 使用 setTimeout 避免在錯誤處理時阻塞 UI
-              setTimeout(() => {
-                const errorMessage = err.message || '未知錯誤';
-                // 只在重要錯誤時顯示給用戶，避免過多錯誤訊息
-                if (!errorMessage.includes('CORS') && !errorMessage.includes('Failed to fetch')) {
-                  setError(`同步 ${key} 失敗: ${errorMessage}`);
-                } else {
-                  // CORS 錯誤通常只需要在控制台記錄，不需要一直顯示給用戶
-                  console.warn('Google Sheets 連線問題，資料已儲存在本地，請檢查設定');
-                }
-              }, 0);
-            });
-        }, 0);
-      }
+    // 兩種模式都先寫本機：雲端模式下這份就是同步失敗時的救援副本
+    const localError = writeLocal(key, newValue as unknown[]);
+    if (localError) {
+      setError(localError);
+    }
 
-      return newData;
-    });
-  }, [storageMode]);
+    if (storageMode === 'googleSheets') {
+      // 不阻塞 UI，同步結果透過 pendingSyncKeys / error 呈現
+      void syncKeyToSheets(key, newValue as any[]);
+    }
+  }, [storageMode, applyData, syncKeyToSheets]);
 
   // 各資料類型的 setter
   const setTenants = useCallback(
@@ -260,16 +300,87 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [loadFromGoogleSheets]);
 
   // 重新載入資料
   const refreshData = useCallback(async () => {
     if (storageMode === 'googleSheets') {
+      if (pendingRef.current.size > 0) {
+        const names = Array.from(pendingRef.current).map(key => DATA_LABELS[key]).join('、');
+        const confirmed = window.confirm(
+          `以下資料尚未同步到 Google Sheets：${names}。\n\n` +
+          '重新載入會以雲端資料覆蓋這些本機變更，確定要繼續嗎？\n' +
+          '（若要保留本機變更，請先取消並按「重試同步」）'
+        );
+        if (!confirmed) return;
+      }
       await loadFromGoogleSheets();
     } else {
-      setData(loadFromLocalStorage());
+      applyData(loadFromLocalStorage());
     }
-  }, [storageMode]);
+  }, [storageMode, loadFromGoogleSheets, applyData]);
+
+  // 重試尚未同步成功的資料表
+  const retrySync = useCallback(async () => {
+    if (storageMode !== 'googleSheets') return;
+
+    const keys = Array.from(pendingRef.current);
+    if (keys.length === 0) return;
+
+    setIsLoading(true);
+    try {
+      for (const key of keys) {
+        await syncKeyToSheets(key, dataRef.current[key] as any[]);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [storageMode, syncKeyToSheets]);
+
+  // 匯出備份檔
+  const exportBackup = useCallback(() => {
+    downloadBackup(dataRef.current);
+  }, []);
+
+  // 還原備份檔（覆蓋目前所有資料）
+  const restoreBackup = useCallback(async (backup: BackupData) => {
+    const nextState: DataState = {
+      ...emptyBackupData(),
+      ...backup,
+      properties: normalizeProperties(backup.properties || []),
+    };
+
+    applyData(nextState);
+
+    const writeErrors = DATA_KEYS
+      .map(key => writeLocal(key, nextState[key]))
+      .filter((msg): msg is string => msg !== null);
+
+    if (writeErrors.length > 0) {
+      setError(writeErrors[0]);
+      throw new Error(writeErrors[0]);
+    }
+
+    setError(null);
+
+    if (storageMode === 'googleSheets') {
+      setIsLoading(true);
+      try {
+        await googleSheets.bulkSync(nextState as unknown as Record<googleSheets.SheetName, any[]>);
+        pendingRef.current.clear();
+        commitPending();
+      } catch (err: any) {
+        DATA_KEYS.forEach(key => pendingRef.current.add(key));
+        commitPending();
+        const message =
+          `備份已還原到本機，但同步到 Google Sheets 失敗，請按「重試同步」。原因：${err?.message || '未知錯誤'}`;
+        setError(message);
+        throw new Error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  }, [storageMode, applyData, commitPending]);
 
   const contextValue: DataContextType = {
     data,
@@ -277,6 +388,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     error,
     storageMode,
     isGoogleSheetsConfigured: googleSheets.isGoogleSheetsConfigured(),
+    pendingSyncKeys,
     setTenants,
     setProperties,
     setContracts,
@@ -287,6 +399,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     disconnectGoogleSheets,
     importToGoogleSheets,
     refreshData,
+    retrySync,
+    exportBackup,
+    restoreBackup,
   };
 
   return (
@@ -335,4 +450,3 @@ export function usePotentialTenants(): [PotentialTenant[], (tenants: PotentialTe
   const { data, setPotentialTenants } = useData();
   return [data.potentialTenants, setPotentialTenants];
 }
-
