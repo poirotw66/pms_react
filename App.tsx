@@ -55,7 +55,7 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const { storageMode, isLoading, error, refreshData } = useData();
+  const { storageMode, isLoading, error, refreshData, pendingSyncKeys, retrySync } = useData();
 
   const currentPageMeta = NAV_ITEMS.find(item => {
     if (item.path === '/') return location.pathname === '/';
@@ -243,7 +243,18 @@ const App: React.FC = () => {
           {/* Error banner */}
           {error && (
             <div className="px-6 py-2 bg-danger-500/10 border-t border-danger-500/20">
-              <p className="text-sm text-danger-400">⚠️ {error}</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-danger-400">⚠️ {error}</p>
+                {pendingSyncKeys.length > 0 && (
+                  <button
+                    onClick={() => { void retrySync(); }}
+                    disabled={isLoading}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-danger-500/20 hover:bg-danger-500/30 text-danger-400 transition-colors disabled:opacity-50"
+                  >
+                    重試同步
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </header>

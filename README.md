@@ -43,6 +43,7 @@
 *   **承租人報修管理 (Tenant Repair Request Management):** 處理承租人提出的修繕請求與結案紀錄。
 *   **物件資產管理 (Property Asset Management):** 追蹤物件內單一高價資產（如家電）的購買日期、價格、保固與廠商資訊。
 *   **潛在客戶管理 (Potential Tenant Management):** 記錄有意承租的潛在客戶、需求與追蹤狀態。
+*   **資料備份與還原 (Backup & Restore):** 於「系統設定」可將全部資料匯出成 JSON 備份檔，或從備份檔還原（會覆蓋現有資料），方便換裝置與定期存檔。
 
 ## 技術棧
 
@@ -54,6 +55,7 @@
 *   **資料儲存:**
     * 預設：瀏覽器 **LocalStorage**（單機即可使用，不需要後端）
     * 選用：**Google Sheets** 作為雲端資料庫，透過 Google Apps Script Web App 提供 API，同步 tenants / properties / contracts 等資料
+    * 雲端模式下每次變更會「先寫入本機再同步雲端」，同步失敗時資料仍保留在瀏覽器，畫面會標示尚未同步的項目並可手動重試
 
 ## 系統需求
 
