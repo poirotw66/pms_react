@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tenant } from '../types.ts';
-import { useTenants } from '../contexts/DataContext.tsx';
+import { useTenants, useContracts, useRepairRequests } from '../contexts/DataContext.tsx';
+import { findTenantReferences, buildDeleteConfirmMessage } from '../lib/relations.ts';
 import { Modal } from './common/Modal.tsx';
 import { Input, Button, FormGroup, Card } from './common/FormControls.tsx';
 import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_TENANT, UsersIcon } from '../constants.tsx';
 
 const TenantManagement: React.FC = () => {
   const [tenants, setTenants] = useTenants();
+  const [contracts] = useContracts();
+  const [repairRequests] = useRepairRequests();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [currentTenant, setCurrentTenant] = useState<Tenant>(DEFAULT_TENANT);
@@ -71,7 +74,11 @@ const TenantManagement: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('確定要刪除此承租人嗎？')) {
+    const tenant = tenants.find(t => t.id === id);
+    const references = findTenantReferences(id, { contracts, repairRequests });
+    const message = buildDeleteConfirmMessage('承租人', tenant?.name || id, references);
+
+    if (window.confirm(message)) {
       setTenants(tenants.filter(t => t.id !== id));
     }
   };

@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Property, PropertyRepairRecord } from '../types.ts';
-import { useProperties } from '../contexts/DataContext.tsx';
+import { useProperties, useContracts, useRepairRequests, useIndividualAssets } from '../contexts/DataContext.tsx';
+import { findPropertyReferences, buildDeleteConfirmMessage } from '../lib/relations.ts';
 import { Modal } from './common/Modal.tsx';
 import { Input, Button, TextArea, FormGroup, Card, Checkbox } from './common/FormControls.tsx';
 import { PlusIcon, EditIcon, DeleteIcon, ViewIcon, DEFAULT_PROPERTY, BuildingOfficeIcon, WrenchScrewdriverIcon, EQUIPMENT_OPTIONS, FURNITURE_OPTIONS, LIVING_FACILITIES_OPTIONS, convertAssetInventory } from '../constants.tsx';
 
 const PropertyManagement: React.FC = () => {
   const [properties, setProperties] = useProperties();
+  const [contracts] = useContracts();
+  const [repairRequests] = useRepairRequests();
+  const [individualAssets] = useIndividualAssets();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [currentProperty, setCurrentProperty] = useState<Property>(DEFAULT_PROPERTY);
@@ -144,7 +148,12 @@ const PropertyManagement: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('確定要刪除此物件嗎？相關合約和資產可能需要手動更新。')) {
+    const property = properties.find(p => p.id === id);
+    const references = findPropertyReferences(id, { contracts, repairRequests, individualAssets });
+    const label = property ? `${property.propertyInternalId} ${property.address}`.trim() : id;
+    const message = buildDeleteConfirmMessage('物件', label, references);
+
+    if (window.confirm(message)) {
       setProperties(properties.filter(p => p.id !== id));
     }
   };

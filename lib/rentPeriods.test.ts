@@ -126,22 +126,49 @@ describe('calculateRentPeriods — 應收日', () => {
     expect(iso(periods[0].dueDate)).toBe('2025-01-01');
   });
 
-  it('季繳：應收日對齊該季的起始月', () => {
-    // 合約自 2 月起算，2 月屬於 Q1，故應收日落在 1 月
+  it('季繳：應收日為該期開始當月的 1 號', () => {
+    // 合約自 2 月起算：第一期從 2 月開始，應收日就在 2 月，不再回推到日曆季的 1 月
     const periods = calculateRentPeriods(
       makeContract({ startDate: '2025-02-01', paymentCycle: PaymentCycle.QUARTERLY, paymentDueDay: 10 }),
       d('2025-06-15')
     );
-    expect(iso(periods[0].dueDate)).toBe('2025-01-10');
+    expect(iso(periods[0].dueDate)).toBe('2025-02-01');
+    expect(iso(periods[1].dueDate)).toBe('2025-05-01');
   });
 
-  it('半年繳：應收日對齊 1 月或 7 月', () => {
+  it('半年繳：應收日為該期開始當月的 1 號', () => {
     const periods = calculateRentPeriods(
       makeContract({ paymentCycle: PaymentCycle.SEMIANNUALLY, paymentDueDay: 15 }),
       d('2025-06-15')
     );
-    expect(iso(periods[0].dueDate)).toBe('2025-01-15'); // 上半年
-    expect(iso(periods[1].dueDate)).toBe('2025-07-15'); // 下半年
+    expect(iso(periods[0].dueDate)).toBe('2025-01-01');
+    expect(iso(periods[1].dueDate)).toBe('2025-07-01');
+  });
+
+  it('季繳／半年繳的應收日一定落在該期所屬的月份（修正前會早於該期數個月）', () => {
+    // 合約自 5 月起算的半年繳：
+    // 修正前第二期（11 月開始）的應收日會被算成 7 月，早於該期 4 個月
+    const periods = calculateRentPeriods(
+      makeContract({
+        startDate: '2025-05-03',
+        endDate: '2026-05-03',
+        paymentCycle: PaymentCycle.SEMIANNUALLY,
+        paymentDueDay: 3,
+      }),
+      d('2025-07-29')
+    );
+
+    expect(iso(periods[0].startDate)).toBe('2025-05-03');
+    expect(iso(periods[0].dueDate)).toBe('2025-05-01');
+    expect(iso(periods[1].startDate)).toBe('2025-11-01');
+    expect(iso(periods[1].dueDate)).toBe('2025-11-01');
+
+    // 每一期的應收日都不得早於該期開始的月份
+    periods.forEach(period => {
+      const dueMonth = period.dueDate.getFullYear() * 12 + period.dueDate.getMonth();
+      const startMonth = period.startDate.getFullYear() * 12 + period.startDate.getMonth();
+      expect(dueMonth).toBe(startMonth);
+    });
   });
 });
 
@@ -304,7 +331,7 @@ describe('getOverduePeriods — 全繳別的逾期判定', () => {
     );
 
     expect(overdue.length).toBeGreaterThan(0);
-    expect(iso(overdue[0].dueDate)).toBe('2025-01-05');
+    expect(iso(overdue[0].dueDate)).toBe('2025-01-01');
   });
 
   it('半年繳也會被納入逾期判定', () => {
@@ -328,10 +355,8 @@ describe('getOverduePeriods — 全繳別的逾期判定', () => {
     expect(iso(overdue[0].dueDate)).toBe('2025-01-10');
   });
 
-  it('尚未開始的期數不算逾期，即使其應收日已過', () => {
-    // 半年繳的應收日對齊 1 月 / 7 月，合約若自 5 月起算，
-    // 第 2 期（11 月開始）的應收日會落在 7 月，早於該期開始日。
-    // 這種情況不能把還沒開始的期數報成逾期。
+  it('尚未開始的期數不算逾期', () => {
+    // 5 月起算的半年繳，7 月底時第 2 期（11 月開始）尚未到來，不得列入逾期
     const contract = makeContract({
       startDate: '2025-05-03',
       endDate: '2026-05-03',
@@ -341,13 +366,11 @@ describe('getOverduePeriods — 全繳別的逾期判定', () => {
 
     const periods = calculateRentPeriods(contract, d('2025-07-29'));
     const secondPeriod = periods[1];
-
-    // 前提：第 2 期確實尚未開始，但應收日已過
     expect(secondPeriod.startDate.getTime()).toBeGreaterThan(d('2025-07-29').getTime());
-    expect(secondPeriod.dueDate.getTime()).toBeLessThan(d('2025-07-29').getTime());
 
     const overdue = getOverduePeriods(contract, d('2025-07-29'));
     expect(overdue.map(p => p.periodNumber)).not.toContain(secondPeriod.periodNumber);
+    expect(overdue.map(p => p.periodNumber)).toContain(1); // 第 1 期已開始且未繳
   });
 
   it('尚未生效或已到期的合約不列入提醒', () => {
@@ -484,11 +507,7 @@ describe('getContractStatus', () => {
     expect(getContractStatus(contract, d('2025-03-01')).label).toBe('正常');
   });
 
-  // 現行行為紀錄（非本次改動造成）：
-  // 年繳的金額檢查比對的是「所有已確認收款的總額」與一年份租金，
-  // 因此年繳拆成多筆排程時，只繳了第一筆的中間狀態會被判為款項異常。
-  // 這裡先把行為釘住，避免後續重構無意間改變它。
-  it('年繳拆多筆排程時，只繳第一筆會被判為款項異常', () => {
+  it('年繳拆多筆排程時，只繳第一筆是正常的中間狀態', () => {
     const contract = makeContract({
       paymentCycle: PaymentCycle.ANNUALLY,
       annualPaymentDates: [
@@ -497,6 +516,40 @@ describe('getContractStatus', () => {
       ],
       paymentRecords: [payment({ id: 'r1', paymentDate: '2025-01-10', amount: 60000 })],
     });
+
+    expect(hasPaymentAmountMismatch(contract)).toBe(false);
+    expect(getContractStatus(contract, d('2025-03-01')).label).toBe('未到時間');
+  });
+
+  it('年繳：收款對不上任何一筆排程時仍判為款項異常', () => {
+    const contract = makeContract({
+      paymentCycle: PaymentCycle.ANNUALLY,
+      annualPaymentDates: [
+        { date: '2025-01-10', amount: 60000 },
+        { date: '2025-07-10', amount: 60000 },
+      ],
+      // 金額對不上任何一筆排程
+      paymentRecords: [payment({ id: 'r1', paymentDate: '2025-01-10', amount: 45000 })],
+    });
+
+    expect(hasPaymentAmountMismatch(contract)).toBe(true);
     expect(getContractStatus(contract, d('2025-03-01')).label).toBe('款項異常');
+  });
+
+  it('年繳：兩筆排程都繳齊後為正常', () => {
+    const contract = makeContract({
+      paymentCycle: PaymentCycle.ANNUALLY,
+      annualPaymentDates: [
+        { date: '2025-01-10', amount: 60000 },
+        { date: '2025-07-10', amount: 60000 },
+      ],
+      paymentRecords: [
+        payment({ id: 'r1', paymentDate: '2025-01-10', amount: 60000 }),
+        payment({ id: 'r2', paymentDate: '2025-07-10', amount: 60000 }),
+      ],
+    });
+
+    expect(hasPaymentAmountMismatch(contract)).toBe(false);
+    expect(getContractStatus(contract, d('2025-08-01')).label).toBe('正常');
   });
 });
