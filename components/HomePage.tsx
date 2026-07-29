@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData, useTenants, useProperties, useContracts, useRepairRequests } from '../contexts/DataContext.tsx';
-import { Contract, RepairRequestStatus, Page, PaymentCycle } from '../types.ts';
-import { NAV_ITEMS, CalendarDaysIcon, BuildingOfficeIcon, UsersIcon, WrenchScrewdriverIcon, DocumentTextIcon, PlusIcon, ExclamationTriangleIcon } from '../constants.tsx'; 
+import { RepairRequestStatus, Page } from '../types.ts';
+import { NAV_ITEMS, CalendarDaysIcon, BuildingOfficeIcon, UsersIcon, WrenchScrewdriverIcon, DocumentTextIcon, PlusIcon, ExclamationTriangleIcon } from '../constants.tsx';
+import { getOverduePeriods } from '../lib/rentPeriods.ts';
 
 // Chevron Right Icon
 const ChevronRightIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -26,69 +27,53 @@ const HomePage: React.FC = () => {
   const [properties] = useProperties();
   const [repairRequests] = useRepairRequests();
   
-  const [expiringContracts, setExpiringContracts] = useState<Contract[]>([]);
-  const [overduePayments, setOverduePayments] = useState<Contract[]>([]);
-
   const getTenantName = (tenantId: string) => tenants.find(t => t.id === tenantId)?.name || 'N/A';
   const getPropertyAddress = (propertyId: string) => properties.find(p => p.id === propertyId)?.address || 'N/A';
 
-  const EXPIRY_THRESHOLD_DAYS = 60; 
+  const EXPIRY_THRESHOLD_DAYS = 60;
 
-  useEffect(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
+  // 以「今天」為基準的衍生資料，改用 useMemo 直接算出，
+  // 不再透過 useEffect + setState 多繞一次 render。
+  const today = useMemo(() => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now;
+  }, []);
 
-    // Calculate Expiring Contracts
-    const upcomingExpiry: Contract[] = contracts.filter(contract => {
-      if (!contract.endDate) return false;
-      const endDate = new Date(contract.endDate);
-      endDate.setHours(0,0,0,0);
-      const diffTime = endDate.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays >= 0 && diffDays <= EXPIRY_THRESHOLD_DAYS;
-    }).sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
-    setExpiringContracts(upcomingExpiry);
+  // 即將到期的合約
+  const expiringContracts = useMemo(() => {
+    return contracts
+      .filter(contract => {
+        if (!contract.endDate) return false;
+        const endDate = new Date(contract.endDate);
+        endDate.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        return diffDays >= 0 && diffDays <= EXPIRY_THRESHOLD_DAYS;
+      })
+      .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+  }, [contracts, today]);
 
-    // Calculate Overdue Payments (currently for monthly cycle)
-    const overdue: Contract[] = contracts.filter(contract => {
-      const contractStartDate = new Date(contract.startDate);
-      const contractEndDate = new Date(contract.endDate);
-      contractStartDate.setHours(0,0,0,0);
-      contractEndDate.setHours(0,0,0,0);
-
-      if (today < contractStartDate || today > contractEndDate) return false;
-      if (contract.paymentCycle !== PaymentCycle.MONTHLY) return false;
-
-      const paymentDayOfMonth = contractStartDate.getDate();
-      const paidThisMonth = contract.paymentRecords.some(p => {
-        if (!p.paymentDate) return false;
-        const paymentDate = new Date(p.paymentDate);
-        return p.isConfirmed && 
-               paymentDate.getMonth() === currentMonth && 
-               paymentDate.getFullYear() === currentYear;
+  // 逾期未收的租金。
+  // 與合約頁共用 getOverduePeriods，因此月繳 / 季繳 / 半年繳 / 年繳都會被列入，
+  // 兩個頁面的判定基準一致（過去只有月繳會出現在這裡）。
+  const overduePayments = useMemo(() => {
+    return contracts
+      .map(contract => {
+        const periods = getOverduePeriods(contract, today);
+        return {
+          contract,
+          periods,
+          totalAmount: periods.reduce((sum, period) => sum + (period.amount || 0), 0),
+          earliestDueDate: periods.length > 0 ? periods[0].dueDate : null,
+        };
+      })
+      .filter(item => item.periods.length > 0)
+      .sort((a, b) => {
+        const dueDiff = (a.earliestDueDate?.getTime() || 0) - (b.earliestDueDate?.getTime() || 0);
+        if (dueDiff !== 0) return dueDiff;
+        return getTenantName(a.contract.tenantId).localeCompare(getTenantName(b.contract.tenantId));
       });
-
-      if (paidThisMonth) return false;
-
-      const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-      const actualPaymentDayThisMonth = Math.min(paymentDayOfMonth, daysInCurrentMonth);
-      
-      return today.getDate() > actualPaymentDayThisMonth; 
-    }).sort((a, b) => {
-        const paymentDayA = new Date(a.startDate).getDate();
-        const paymentDayB = new Date(b.startDate).getDate();
-        if (paymentDayA !== paymentDayB) {
-            return paymentDayA - paymentDayB;
-        }
-        const tenantA = getTenantName(a.tenantId);
-        const tenantB = getTenantName(b.tenantId);
-        return tenantA.localeCompare(tenantB);
-    });
-    setOverduePayments(overdue);
-
-  }, [contracts, tenants, properties]); 
+  }, [contracts, tenants, today]);
 
   const activeContractsCount = contracts.filter(c => {
     const today = new Date();
@@ -166,14 +151,16 @@ const HomePage: React.FC = () => {
     );
   };
 
-  const currentMonthDisplay = new Date().toLocaleString('zh-TW', { month: 'long' });
+  const formatDate = (date: Date): string => {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+  };
 
   // Calculate days until expiry
   const getDaysUntilExpiry = (endDate: string) => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
     const end = new Date(endDate);
-    end.setHours(0,0,0,0);
+    end.setHours(0, 0, 0, 0);
     return Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   };
 
@@ -344,7 +331,7 @@ const HomePage: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-white">租金尚未繳交</h2>
-                <p className="text-xs text-surface-500">{currentMonthDisplay}租金提醒</p>
+                <p className="text-xs text-surface-500">應收日已過但尚未收款（含月/季/半年/年繳）</p>
               </div>
             </div>
             {overduePayments.length > 0 && (
@@ -355,9 +342,9 @@ const HomePage: React.FC = () => {
           <div className="p-4">
             {overduePayments.length > 0 ? (
               <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
-                {overduePayments.map((contract, index) => (
-                  <div 
-                    key={contract.id} 
+                {overduePayments.map(({ contract, periods, totalAmount, earliestDueDate }, index) => (
+                  <div
+                    key={contract.id}
                     className="alert-danger p-4 rounded-xl transition-all hover:translate-x-1"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
@@ -365,19 +352,28 @@ const HomePage: React.FC = () => {
                       <div className="flex-1">
                         <p className="text-sm font-medium text-white mb-1">
                           {contract.contractInternalId}
+                          <span className="ml-2 text-xs font-normal text-surface-400">{contract.paymentCycle}</span>
                         </p>
                         <p className="text-xs text-surface-400 mb-0.5">
                           <span className="text-surface-500">物件：</span>{getPropertyAddress(contract.propertyId)}
                         </p>
-                        <p className="text-xs text-surface-400">
+                        <p className="text-xs text-surface-400 mb-0.5">
                           <span className="text-surface-500">承租人：</span>{getTenantName(contract.tenantId)}
                         </p>
+                        {earliestDueDate && (
+                          <p className="text-xs text-danger-400">
+                            <span className="text-surface-500">最早應收日：</span>
+                            {formatDate(earliestDueDate)}
+                          </p>
+                        )}
                       </div>
                       <div className="text-right">
                         <span className="text-xl font-bold text-danger-400">
-                          ${contract.rentAmount.toLocaleString()}
+                          ${totalAmount.toLocaleString()}
                         </span>
-                        <p className="text-xs text-surface-500">{currentMonthDisplay}</p>
+                        <p className="text-xs text-surface-500">
+                          {periods.length > 1 ? `${periods.length} 期未收` : '1 期未收'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -390,7 +386,7 @@ const HomePage: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
                   </svg>
                 </div>
-                <p className="text-surface-400">本月租金均已收齊</p>
+                <p className="text-surface-400">目前沒有逾期未收的租金</p>
                 <p className="text-xs text-surface-500 mt-1">保持良好的收款記錄</p>
               </div>
             )}

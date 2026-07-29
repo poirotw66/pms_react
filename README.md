@@ -47,7 +47,7 @@
 
 ## 技術棧
 
-*   **前端框架:** React 18+
+*   **前端框架:** React 19
 *   **語言:** TypeScript
 *   **樣式:** Tailwind CSS（目前透過 CDN 載入，開發環境會看到 `cdn.tailwindcss.com should not be used in production` 的提示，未來可改為 PostCSS/CLI 正式整合）
 *   **開發與建置工具:** Vite
@@ -208,6 +208,12 @@ Tailwind CSS 的基本主題顏色等設定直接在 `index.html` 中的 `<scrip
 如果您偏好手動部署：
 
 ```bash
+# 型別檢查
+npm run typecheck
+
+# 單元測試（租期計算與收款比對）
+npm test
+
 # 建置專案
 npm run build
 
