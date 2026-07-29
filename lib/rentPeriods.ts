@@ -156,30 +156,29 @@ function calculateAnnualPeriods(contract: Contract): RentPeriod[] {
   return periods;
 }
 
-/** 計算單期的應收日：依繳別對齊到月 / 季 / 半年的起始月 */
+/**
+ * 計算單期的應收日。
+ *
+ * 月繳：該期開始當月的「應收日」設定（paymentDueDay，超過當月天數時收斂到月底）。
+ * 季繳 / 半年繳：該期開始當月的第 1 天。
+ *
+ * 季繳與半年繳過去是對齊「日曆季 / 半年的起始月」（Q1 一律算 1 月、下半年一律算 7 月），
+ * 合約若不是從 1/4/7/10 月起算，應收日就會落在該期開始之前，
+ * 例如 5 月起算的半年繳，第二期 11 月開始卻算出 7 月的應收日。
+ * 改為以該期實際開始的月份為準後，應收日一定落在該期所屬的月份。
+ */
 function calculateDueDate(contract: Contract, periodStart: Date): Date {
-  const paymentDueDay = contract.paymentDueDay || 1; // Default to 1st if not set
   const dueDate = new Date(periodStart);
 
   if (contract.paymentCycle === PaymentCycle.MONTHLY) {
-    // Monthly: due date is paymentDueDay of the period start month
+    const paymentDueDay = contract.paymentDueDay || 1; // Default to 1st if not set
     const daysInMonth = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 0).getDate();
     dueDate.setDate(Math.min(paymentDueDay, daysInMonth));
-  } else if (contract.paymentCycle === PaymentCycle.QUARTERLY) {
-    // Quarterly: due date is paymentDueDay of the first month of the quarter
-    // Quarters: Q1 (Jan-Mar), Q2 (Apr-Jun), Q3 (Jul-Sep), Q4 (Oct-Dec)
-    const quarterStartMonth = Math.floor(periodStart.getMonth() / 3) * 3; // 0, 3, 6, or 9
-    dueDate.setFullYear(periodStart.getFullYear());
-    dueDate.setMonth(quarterStartMonth, 1); // Set to first day of quarter start month
-    const daysInMonth = new Date(periodStart.getFullYear(), quarterStartMonth + 1, 0).getDate();
-    dueDate.setDate(Math.min(paymentDueDay, daysInMonth));
-  } else if (contract.paymentCycle === PaymentCycle.SEMIANNUALLY) {
-    // Semi-annually: due date is paymentDueDay of January or July
-    const halfYearStartMonth = periodStart.getMonth() < 6 ? 0 : 6; // January (0) or July (6)
-    dueDate.setFullYear(periodStart.getFullYear());
-    dueDate.setMonth(halfYearStartMonth, 1); // Set to first day of half year start month
-    const daysInMonth = new Date(periodStart.getFullYear(), halfYearStartMonth + 1, 0).getDate();
-    dueDate.setDate(Math.min(paymentDueDay, daysInMonth));
+  } else if (
+    contract.paymentCycle === PaymentCycle.QUARTERLY ||
+    contract.paymentCycle === PaymentCycle.SEMIANNUALLY
+  ) {
+    dueDate.setDate(1);
   }
 
   dueDate.setHours(0, 0, 0, 0);
@@ -486,13 +485,24 @@ export function hasPaymentAmountMismatch(contract: Contract): boolean {
   const totalPaid = confirmedPayments.reduce((sum, pr) => sum + (pr.amount || 0), 0);
   const monthlyRent = contract.rentAmount;
 
-  // For annual payment cycle, check if total confirmed payments match annual rent amount
   if (contract.paymentCycle === PaymentCycle.ANNUALLY) {
-    // Calculate expected annual amount (considering discount)
-    const hasDiscount = contract.annualDiscount || false;
-    const expectedAnnualAmount = hasDiscount ? monthlyRent * 11.5 : monthlyRent * 12;
-    // Allow small difference due to rounding (within 1 NT$)
-    return Math.abs(totalPaid - expectedAnnualAmount) > 1;
+    // 年繳沒有收款排程時無法逐筆比對，只能退回總額檢查
+    if (hasMissingAnnualSchedule(contract)) {
+      const hasDiscount = contract.annualDiscount || false;
+      const expectedAnnualAmount = hasDiscount ? monthlyRent * 11.5 : monthlyRent * 12;
+      // Allow small difference due to rounding (within 1 NT$)
+      return Math.abs(totalPaid - expectedAnnualAmount) > 1;
+    }
+
+    // 有排程時逐筆比對：只要每筆收款都能對應到某一筆排程就算正常。
+    // 過去是拿「所有收款的總額」與一年份租金相比，導致年繳拆成多筆排程時，
+    // 只繳了第一筆的正常中間狀態會被誤判為款項異常。
+    const periods = calculateRentPeriods(contract);
+    const matchedPaymentIds = new Set(
+      periods.map(period => period.matchedPaymentId).filter((id): id is string => !!id)
+    );
+
+    return confirmedPayments.some(payment => !matchedPaymentIds.has(payment.id));
   }
 
   // For quarterly payment cycle, check if total confirmed payments match quarterly rent amount

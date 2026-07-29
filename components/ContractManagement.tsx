@@ -832,6 +832,7 @@ const ContractManagement: React.FC = () => {
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">期數</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">期間</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">應收日</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">金額</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">狀態</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-surface-400">收款日期</th>
@@ -893,6 +894,7 @@ const ContractManagement: React.FC = () => {
                               <td className="px-4 py-3 text-sm text-surface-300">
                                 {formatDate(period.startDate)} ~ {formatDate(period.endDate)}
                               </td>
+                              <td className="px-4 py-3 text-sm text-surface-300">{formatDate(period.dueDate)}</td>
                               <td className="px-4 py-3 text-sm text-white font-medium">${period.amount.toLocaleString()}</td>
                               <td className="px-4 py-3">
                                 <span className={`badge ${statusBadge}`}>

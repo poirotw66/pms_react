@@ -56,6 +56,9 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 // localStorage key 沿用 services/backup.ts 的定義，確保與舊版資料相容
 const localStorageKeys = STORAGE_KEYS;
 
+/** 連續編輯時，停止操作多久才送出雲端同步 */
+const SYNC_DEBOUNCE_MS = 800;
+
 /**
  * 將舊格式的 assetInventory（以 "."、","、"、" 分隔的字串）轉成新的陣列格式。
  * 舊資料一律走這個函式，確保升級後仍讀得到。
@@ -143,6 +146,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const dataRef = useRef<DataState>(data);
   const pendingRef = useRef<Set<DataKey>>(new Set());
 
+  // 同步排程：每個資料表各自防抖，並把請求串成單一佇列。
+  // Google Sheets 的同步是「整張表覆寫」，若讓多個請求並行，
+  // 回應順序無法保證，先送的舊資料可能在後送的新資料之後才寫入而蓋掉它。
+  const syncTimersRef = useRef<Map<DataKey, ReturnType<typeof setTimeout>>>(new Map());
+  const syncQueueRef = useRef<Map<DataKey, Promise<void>>>(new Map());
+  const latestPayloadRef = useRef<Map<DataKey, any[]>>(new Map());
+
   const applyData = useCallback((next: DataState) => {
     dataRef.current = next;
     setData(next);
@@ -218,6 +228,56 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [commitPending]);
 
+  /**
+   * 把某個資料表排入同步佇列。
+   *
+   * 連續編輯只會在停止操作 SYNC_DEBOUNCE_MS 後送出一次，
+   * 且同一個資料表的請求會串接執行，不會有兩個覆寫同時在路上。
+   */
+  const scheduleSync = useCallback((key: DataKey, records: any[]) => {
+    latestPayloadRef.current.set(key, records);
+
+    const existingTimer = syncTimersRef.current.get(key);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    syncTimersRef.current.set(key, setTimeout(() => {
+      syncTimersRef.current.delete(key);
+
+      const previous = syncQueueRef.current.get(key) || Promise.resolve();
+      const next = previous.then(() => {
+        // 送出時一律取最新的內容，中途累積的變更不需要各送一次
+        const payload = latestPayloadRef.current.get(key) || [];
+        return syncKeyToSheets(key, payload);
+      });
+
+      syncQueueRef.current.set(key, next);
+    }, SYNC_DEBOUNCE_MS));
+  }, [syncKeyToSheets]);
+
+  /** 立即送出所有還在防抖等待中的同步 */
+  const flushPendingSyncs = useCallback(() => {
+    const keys = Array.from(syncTimersRef.current.keys());
+    keys.forEach(key => {
+      const timer = syncTimersRef.current.get(key);
+      if (timer) clearTimeout(timer);
+      syncTimersRef.current.delete(key);
+
+      const previous = syncQueueRef.current.get(key) || Promise.resolve();
+      const next = previous.then(() => syncKeyToSheets(key, latestPayloadRef.current.get(key) || []));
+      syncQueueRef.current.set(key, next);
+    });
+    return Promise.all(Array.from(syncQueueRef.current.values()));
+  }, [syncKeyToSheets]);
+
+  // 卸載時清掉待送的計時器，避免對已卸載的元件寫入狀態
+  useEffect(() => {
+    const timers = syncTimersRef.current;
+    return () => {
+      timers.forEach(timer => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   // 通用的資料更新函數
   const updateData = useCallback(async <K extends DataKey>(
     key: K,
@@ -238,9 +298,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     if (storageMode === 'googleSheets') {
       // 不阻塞 UI，同步結果透過 pendingSyncKeys / error 呈現
-      void syncKeyToSheets(key, newValue as any[]);
+      scheduleSync(key, newValue as any[]);
     }
-  }, [storageMode, applyData, syncKeyToSheets]);
+  }, [storageMode, applyData, scheduleSync]);
 
   // 各資料類型的 setter
   const setTenants = useCallback(
@@ -305,6 +365,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // 重新載入資料
   const refreshData = useCallback(async () => {
     if (storageMode === 'googleSheets') {
+      // 先把還在防抖等待中的變更送出去，否則會被雲端資料覆蓋
+      await flushPendingSyncs();
+
       if (pendingRef.current.size > 0) {
         const names = Array.from(pendingRef.current).map(key => DATA_LABELS[key]).join('、');
         const confirmed = window.confirm(
@@ -318,11 +381,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } else {
       applyData(loadFromLocalStorage());
     }
-  }, [storageMode, loadFromGoogleSheets, applyData]);
+  }, [storageMode, loadFromGoogleSheets, applyData, flushPendingSyncs]);
 
   // 重試尚未同步成功的資料表
   const retrySync = useCallback(async () => {
     if (storageMode !== 'googleSheets') return;
+
+    // 還在等待防抖的變更一併送出
+    await flushPendingSyncs();
 
     const keys = Array.from(pendingRef.current);
     if (keys.length === 0) return;
@@ -335,7 +401,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setIsLoading(false);
     }
-  }, [storageMode, syncKeyToSheets]);
+  }, [storageMode, syncKeyToSheets, flushPendingSyncs]);
 
   // 匯出備份檔
   const exportBackup = useCallback(() => {
@@ -344,6 +410,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // 還原備份檔（覆蓋目前所有資料）
   const restoreBackup = useCallback(async (backup: BackupData) => {
+    // 取消還在等待中的同步：它們帶的是還原前的資料，
+    // 若在 bulkSync 之後才送出會把還原結果蓋掉
+    syncTimersRef.current.forEach(timer => clearTimeout(timer));
+    syncTimersRef.current.clear();
+    latestPayloadRef.current.clear();
+
     const nextState: DataState = {
       ...emptyBackupData(),
       ...backup,
